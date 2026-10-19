@@ -21,6 +21,8 @@ import secrets
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from . import paths
+
 PBKDF2_ITERATIONS = 390_000
 
 
@@ -28,7 +30,7 @@ def admins_path() -> Path:
     override = os.environ.get("MCP_TOOLS_ADMINS_PATH")
     if override:
         return Path(override)
-    return Path.home() / ".jupyter_mcp_tools" / "admins.json"
+    return paths.data_dir() / "admins.json"
 
 
 @dataclass

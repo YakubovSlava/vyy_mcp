@@ -215,6 +215,26 @@ Both processes read the shared directory from the same config file
 `MCP_TOOLS_CONFIG_PATH`), or you can force the server to a specific
 directory with `--shared-dir`.
 
+## Where data files live
+
+Four files hold this app's own state — `admins.json`, `config.json`,
+`users.json`, `session_secret` — all independent of the shared tools
+directory itself (which holds the actual skill content, not metadata).
+By default they live under `~/.jupyter_mcp_tools/`. To move all four at
+once (e.g. to keep them outside a project checkout entirely), set one
+env var before starting either process:
+
+```bash
+export MCP_TOOLS_DATA_DIR=/path/to/secrets
+```
+
+Each file also has its own specific override
+(`MCP_TOOLS_ADMINS_PATH`, `MCP_TOOLS_CONFIG_PATH`, `MCP_TOOLS_USERS_PATH`,
+`MCP_TOOLS_SESSION_SECRET_PATH`) that takes precedence over
+`MCP_TOOLS_DATA_DIR` if you need to split them up individually. The
+shared tools directory itself is unaffected by any of this — it's set
+separately via the "⚙" dialog or `--shared-dir`.
+
 ## Onboarding end users (not admins)
 
 End users of the MCP server — as opposed to admins who manage tools —

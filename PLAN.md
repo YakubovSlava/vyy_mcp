@@ -80,6 +80,20 @@ available to every user of the server — without restarting anything.
   navigation is correct regardless of trailing slash, current request
   depth, or whether the app is reached standalone (where the header is
   absent and `base` is simply `""`).
+- **All four data files (`admins.json`, `config.json`, `users.json`,
+  `session_secret`) share one base directory via `common/paths.py`'s
+  `data_dir()`** (env var `MCP_TOOLS_DATA_DIR`, default
+  `~/.jupyter_mcp_tools`), rather than each independently defaulting to
+  the same hardcoded path. Per explicit request: the admin wanted these
+  moved out from under the project checkout entirely (in this
+  deployment, to the parent of the repo directory) without juggling four
+  separate env vars. Each file's existing specific override
+  (`MCP_TOOLS_ADMINS_PATH`, etc.) still takes precedence over
+  `MCP_TOOLS_DATA_DIR` if set — this only changes what they fall back to.
+  The shared **tools** directory (`shared_tools/`, the actual skill
+  content, configured via the "⚙" dialog / `--shared-dir`) deliberately
+  stays independent of `data_dir()` — it's content admins manage through
+  the UI, not app secrets, and moving it wasn't part of the request.
 - **Flat, equally-privileged admin accounts**, checked against
   `common/auth.py`'s store (`~/.jupyter_mcp_tools/admins.json`,
   PBKDF2-HMAC-SHA256 hashes — stdlib `hashlib` only, no bcrypt/passlib

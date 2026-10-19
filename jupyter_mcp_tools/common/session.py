@@ -16,6 +16,8 @@ import time
 from hashlib import sha256
 from pathlib import Path
 
+from . import paths
+
 SESSION_TTL_SECONDS = 12 * 60 * 60
 COOKIE_NAME = "mjapp_session"
 
@@ -24,7 +26,7 @@ def _secret_key_path() -> Path:
     override = os.environ.get("MCP_TOOLS_SESSION_SECRET_PATH")
     if override:
         return Path(override)
-    return Path.home() / ".jupyter_mcp_tools" / "session_secret"
+    return paths.data_dir() / "session_secret"
 
 
 def _secret_key() -> bytes:

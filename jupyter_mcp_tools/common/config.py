@@ -15,6 +15,8 @@ import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from . import paths
+
 
 def _default_shared_dir() -> Path:
     return Path.home() / ".jupyter_mcp_tools" / "shared_tools"
@@ -24,7 +26,7 @@ def config_path() -> Path:
     override = os.environ.get("MCP_TOOLS_CONFIG_PATH")
     if override:
         return Path(override)
-    return Path.home() / ".jupyter_mcp_tools" / "config.json"
+    return paths.data_dir() / "config.json"
 
 
 @dataclass

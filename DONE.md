@@ -384,3 +384,27 @@
   (`jupyter-mcp-tools-server`, `jupyter-mcp-tools-admin-users`) still get
   registered and the full suite (67/67) still passes under the new
   install flow.
+
+## 2026-10-19 (shared data_dir for admins/config/users/session_secret)
+
+- Added `common/paths.py`'s `data_dir()` — a single `MCP_TOOLS_DATA_DIR`
+  env var (default `~/.jupyter_mcp_tools`) that `common/auth.py`,
+  `common/config.py`, `common/users.py`, and `common/session.py` all now
+  fall back to for `admins.json`/`config.json`/`users.json`/
+  `session_secret`, instead of each hardcoding the same path
+  independently. Per explicit request, moved out of the project
+  checkout entirely. Each file's own specific override env var
+  (`MCP_TOOLS_ADMINS_PATH` etc.) still wins if set. `shared_tools/` (the
+  actual skill content) deliberately wasn't moved — it's managed through
+  the admin UI, not an app secret.
+- Migrated the real, already-deployed data on the user's host: moved
+  `admins.json`, `config.json`, `session_secret`, `users.json` from
+  `~/.jupyter_mcp_tools/` to `/home/vyy/.../remote_connection/` (one
+  level above the project checkout), restarted both live services
+  (`admin_ui` on 8766, `jupyter-mcp-tools-server` on 8765) with
+  `MCP_TOOLS_DATA_DIR` set, and verified the existing admin account
+  (`slava`) still resolves correctly from the new location — confirmed
+  via `common.auth.list_admins()` against the real env, not just tests.
+  `~/.jupyter_mcp_tools/` now contains only `shared_tools/`, as intended.
+- Added `test_paths.py` (4 tests: default, override, all-four-share-it,
+  specific-override-still-wins). Full suite: 71/71 passing.

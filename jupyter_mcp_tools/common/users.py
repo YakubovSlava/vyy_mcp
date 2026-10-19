@@ -23,12 +23,14 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import paths
+
 
 def users_path() -> Path:
     override = os.environ.get("MCP_TOOLS_USERS_PATH")
     if override:
         return Path(override)
-    return Path.home() / ".jupyter_mcp_tools" / "users.json"
+    return paths.data_dir() / "users.json"
 
 
 def _now() -> str:
