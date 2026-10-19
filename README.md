@@ -28,8 +28,16 @@ See [`PLAN.md`](PLAN.md) for the architecture/roadmap and
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -r requirements-dev.txt   # runtime + test dependencies
+pip install -e . --no-deps            # registers the console scripts below
 ```
+
+Dependencies live in `requirements.txt` (runtime) /
+`requirements-dev.txt` (+ `pytest`/`httpx` for tests) — `pyproject.toml`
+reads its `dependencies` from `requirements.txt` too
+(`[tool.setuptools.dynamic]`), so there's one list to keep in sync, not
+two. Production-only install: `pip install -r requirements.txt && pip
+install -e . --no-deps`.
 
 ## Bootstrap your admin account
 

@@ -370,3 +370,17 @@
   `examples/setup_files_tool.zip` through install → sync → call, plus
   remote-mode/users-page test updates for the new `/docs` route. Full
   suite: 66/66 passing.
+- Pushed the project to GitHub (`git@github.com:YakubovSlava/vyy_mcp.git`,
+  branch `main`) — this was the first commit ever made in the repo (all
+  prior work had been uncommitted on disk). Verified no secrets/venv
+  ended up staged before committing.
+- Moved dependency declarations out of `pyproject.toml` into
+  `requirements.txt` (runtime) / `requirements-dev.txt` (+ pytest/httpx),
+  per explicit request. `pyproject.toml` now declares
+  `dynamic = ["dependencies"]` and points at `requirements.txt` via
+  `[tool.setuptools.dynamic]` instead of listing packages twice. Updated
+  README's install steps to `pip install -r requirements-dev.txt` then
+  `pip install -e . --no-deps`; re-verified the console scripts
+  (`jupyter-mcp-tools-server`, `jupyter-mcp-tools-admin-users`) still get
+  registered and the full suite (67/67) still passes under the new
+  install flow.

@@ -8,6 +8,16 @@ available to every user of the server — without restarting anything.
 
 ## Architecture decisions
 
+- **Dependencies live in `requirements.txt`/`requirements-dev.txt`, not
+  duplicated in `pyproject.toml`.** Per explicit request. `pyproject.toml`
+  declares `dynamic = ["dependencies"]` and reads them from
+  `requirements.txt` via `[tool.setuptools.dynamic]`, so there's one list
+  to edit, not two that can drift. Install is therefore two steps instead
+  of one (`pip install -r requirements-dev.txt` then
+  `pip install -e . --no-deps`) — the `--no-deps` on the second step
+  matters: without it, pip would re-resolve dependencies from
+  `pyproject.toml` (which just points back at `requirements.txt` anyway,
+  but there's no reason to make pip do that resolution twice).
 - **Two independent processes, one package.** The MCP server
   (`mcp_server/`) and the admin UI (`admin_ui/`) are separate FastAPI/MCP
   apps that only share filesystem state (the shared tools directory) and a
