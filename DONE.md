@@ -508,3 +508,36 @@
   admin UI with `curl`: `GET /` unauthenticated now returns 200 with the
   self-correct script present; `GET /login` returns 200 with it absent.
   Full suite: 71/71 passing.
+
+## 2026-10-19 (fixed MCP server rejecting every proxied request with 421)
+
+- User reported the MCP server (not the admin UI this time) always
+  returning `421 Misdirected Request` when connecting through opencode.
+  Root-caused by reading `mcp/server/transport_security.py`'s source
+  directly rather than guessing from the error: the `mcp` SDK's
+  `FastMCP` auto-enables DNS-rebinding protection — validating the
+  `Host` header against `127.0.0.1`/`localhost`/`::1` patterns — if it
+  sees one of those as its `host` constructor argument. `build_app()`
+  in `mcp_server/server.py` was constructing `FastMCP(...)` with no
+  `host` kwarg (silently defaulting to `"127.0.0.1"`), then `main()`
+  separately set `app.settings.host = args.host` afterwards when
+  binding `0.0.0.0` for real use — too late, since the host-locking
+  decision is baked in at `__init__` time and doesn't get revisited.
+  Every request through any real proxy (JupyterHub, opencode hitting a
+  public domain, curl with a non-local `Host` header) got 421'd by this
+  SDK-internal check, which had nothing to do with our own code and
+  made the error look unrelated to anything we'd written.
+- Fixed by passing `host=`/`port=` straight into `build_app()`'s own
+  `FastMCP(...)` call (new keyword args, default `127.0.0.1`/`8765` to
+  match prior behavior) instead of `main()` patching `app.settings`
+  after construction. Binding `0.0.0.0` now correctly skips FastMCP's
+  auto-protection (its own `host in (...)` check is false), matching
+  this project's existing "trusted internal/proxied deployment" trust
+  model.
+- Verified directly against the real running server: a full `mcp` SDK
+  client handshake (`initialize` → `list_tools`) carrying a `Host:
+  yakubov.tech:8888` header now succeeds where it previously 421'd.
+  Added `test_binding_0_0_0_0_accepts_foreign_host_header` and a
+  contrasting `test_binding_127_0_0_1_still_locks_host_header` (confirms
+  the fix is "pass `host` through correctly," not "disable the check
+  globally"). Full suite: 73/73 passing.

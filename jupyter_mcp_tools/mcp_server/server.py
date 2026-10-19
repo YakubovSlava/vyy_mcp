@@ -80,7 +80,7 @@ async def _tool_sync_loop(app: FastMCP, shared_dir: Path) -> None:
         await asyncio.sleep(SYNC_INTERVAL_SECONDS)
 
 
-def build_app(shared_dir: Path) -> FastMCP:
+def build_app(shared_dir: Path, host: str = "127.0.0.1", port: int = 8765) -> FastMCP:
     @contextlib.asynccontextmanager
     async def lifespan(app: FastMCP) -> AsyncIterator[dict]:
         sync_tools(app, shared_dir)
@@ -92,6 +92,15 @@ def build_app(shared_dir: Path) -> FastMCP:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
 
+    # `host` must be passed in at construction time, not set on
+    # `app.settings` afterwards: FastMCP auto-enables DNS-rebinding
+    # protection (locking Host-header validation to 127.0.0.1/localhost
+    # patterns) *during __init__*, based on whatever `host` it's given
+    # right then — setting app.settings.host later doesn't undo that.
+    # Binding 0.0.0.0 to serve through a reverse proxy/JupyterHub (whose
+    # Host header is whatever external domain the client used, not
+    # 127.0.0.1) was getting every request rejected with a misleading
+    # "421 Misdirected Request" because of this — see PLAN.md.
     return FastMCP(
         "jupyter-mcp-tools",
         instructions=(
@@ -100,6 +109,8 @@ def build_app(shared_dir: Path) -> FastMCP:
             "JupyterLab server."
         ),
         lifespan=lifespan,
+        host=host,
+        port=port,
     )
 
 
@@ -127,10 +138,10 @@ def main() -> None:
     shared_dir.mkdir(parents=True, exist_ok=True)
     logger.info("serving tools from %s", shared_dir)
 
-    app = build_app(shared_dir)
     if args.transport in ("sse", "streamable-http"):
-        app.settings.host = args.host
-        app.settings.port = args.port
+        app = build_app(shared_dir, host=args.host, port=args.port)
+    else:
+        app = build_app(shared_dir)
 
     if args.transport == "streamable-http":
         # Bypass app.run() here so we can attach LogMCPUserMiddleware to the

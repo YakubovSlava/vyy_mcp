@@ -262,6 +262,34 @@ available to every user of the server — without restarting anything.
   already run on the server. No seccomp/container sandboxing — this
   targets a trusted-admin, internal-network deployment (same boundary as
   JupyterHub auth), not a public multi-tenant platform.
+- **`FastMCP`'s `host` must be passed in at construction, not set on
+  `app.settings` afterwards.** `mcp_server/server.py`'s `build_app()`
+  was constructing `FastMCP(...)` with no `host` kwarg (defaulting to
+  `"127.0.0.1"`), then `main()` set `app.settings.host = args.host`
+  after the fact when binding `0.0.0.0` for `streamable-http`. That
+  looked harmless but wasn't: `FastMCP.__init__` auto-enables DNS-
+  rebinding protection — locking `Host`-header validation to
+  `127.0.0.1`/`localhost`/`::1` patterns — *whenever it sees one of
+  those as `host` at construction time*, and that decision, baked into
+  `self.settings.transport_security`, doesn't get revisited just
+  because `app.settings.host` changes later. Every request through a
+  real proxy (JupyterHub, opencode connecting to a public domain, ...)
+  sends a `Host` header that isn't `127.0.0.1`-shaped, so every one of
+  them got rejected with `421 Misdirected Request` — a response that
+  comes from `mcp.server.transport_security`, not from this app's own
+  code, which made it look unrelated to anything we'd written. Root-
+  caused by reading that module's source (`_validate_host` /
+  `Response("Invalid Host header", status_code=421)`), not by guessing
+  from the error text. Fixed by passing `host=`/`port=` straight into
+  `build_app()`'s own `FastMCP(...)` call instead of `main()` patching
+  `app.settings` post-hoc — binding `0.0.0.0` now means FastMCP's
+  `host in ("127.0.0.1", "localhost", "::1")` check is false, so it
+  doesn't auto-enable the host-locking at all (same trust-boundary
+  reasoning as the rest of this project: an internal/proxied deployment
+  isn't the public-rebinding-attack scenario this protection targets).
+  Verified against the *running* server with a real `mcp` SDK client
+  session carrying a foreign `Host` header, not just by reasoning about
+  the SDK's source.
 - **Multi-file skill results needed zero MCP-server changes** — only a
   documented convention. A skill's entrypoint can already return any
   JSON-serializable value (not just `str`), and FastMCP serializes it

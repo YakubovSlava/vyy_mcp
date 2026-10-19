@@ -35,3 +35,37 @@ def test_request_without_mcp_user_header_records_nothing(tmp_path, monkeypatch):
         client.get("/mcp", headers={"Accept": "application/json, text/event-stream"})
 
     assert users.list_users() == []
+
+
+def test_binding_0_0_0_0_accepts_foreign_host_header(tmp_path):
+    # Regression test: FastMCP auto-enables DNS-rebinding protection
+    # (locking Host-header validation to 127.0.0.1/localhost patterns)
+    # if it sees one of those as `host` *at construction time* — and
+    # that decision doesn't change just because something sets
+    # app.settings.host afterwards. build_app() must pass host= into
+    # FastMCP(...) directly, or every request through a real proxy
+    # (whose Host header is some external domain, not 127.0.0.1) gets
+    # rejected with 421 regardless of what we bind to. See PLAN.md.
+    app = build_app(tmp_path / "shared", host="0.0.0.0", port=8765)
+    starlette_app = app.streamable_http_app()
+    with TestClient(starlette_app) as client:
+        r = client.get(
+            "/mcp",
+            headers={"Host": "some.external.domain:8888", "Accept": "application/json, text/event-stream"},
+        )
+    assert r.status_code != 421
+
+
+def test_binding_127_0_0_1_still_locks_host_header(tmp_path):
+    # The flip side: explicitly binding localhost should still get
+    # FastMCP's own DNS-rebinding protection (its sensible default for
+    # that case) — confirms the fix is about passing `host` through
+    # correctly, not about disabling the check altogether.
+    app = build_app(tmp_path / "shared", host="127.0.0.1", port=8765)
+    starlette_app = app.streamable_http_app()
+    with TestClient(starlette_app) as client:
+        r = client.get(
+            "/mcp",
+            headers={"Host": "some.external.domain:8888", "Accept": "application/json, text/event-stream"},
+        )
+    assert r.status_code == 421
