@@ -1,5 +1,6 @@
 import asyncio
 import json
+import zipfile
 from pathlib import Path
 
 from jupyter_mcp_tools.common import registry
@@ -7,6 +8,18 @@ from jupyter_mcp_tools.mcp_server.server import build_app, sync_tools
 from jupyter_mcp_tools.tests.conftest import VALID_MANIFEST, VALID_MODULE
 
 EXAMPLES_DIR = Path(__file__).parent.parent.parent / "examples"
+
+
+def _zip_example(name: str, dest: Path) -> Path:
+    """Archives aren't committed to the repo (see .gitignore) — zip the
+    example's source directly for the test."""
+    src = EXAMPLES_DIR / name
+    archive = dest / f"{name}.zip"
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
+        for file in sorted(src.rglob("*")):
+            if file.is_file():
+                zf.write(file, arcname=file.relative_to(src))
+    return archive
 
 
 def test_sync_registers_and_removes_tools(make_archive, shared_dir):
@@ -46,12 +59,12 @@ def test_sync_picks_up_updated_tool_code(make_archive, shared_dir):
     assert content[0].text == "Hi, World!"
 
 
-def test_multi_file_skill_result_round_trip(shared_dir):
+def test_multi_file_skill_result_round_trip(shared_dir, tmp_path):
     """The examples/setup_files_tool skill returns multiple files for a
     human to run themselves (common/skill_results.py). This exercises the
     real, dynamically-loaded example — not a synthetic stand-in — the
     same way the MCP server itself loads skills."""
-    archive = EXAMPLES_DIR / "setup_files_tool.zip"
+    archive = _zip_example("setup_files_tool", tmp_path)
     registry.install_tool(archive, shared_dir)
 
     app = build_app(shared_dir)

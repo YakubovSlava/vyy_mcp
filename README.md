@@ -72,9 +72,12 @@ password you just created. From there you can:
    On success the tool is installed for every user immediately.
 3. **Remove** an installed tool.
 
-A ready-made example archive lives at `examples/echo_tool.zip` (rebuild it
-with `python examples/build_archive.py echo_tool` if you edit the source
-under `examples/echo_tool/`).
+`examples/echo_tool/` has the source for a minimal example skill —
+archives aren't committed to the repo, build one yourself:
+
+```bash
+python examples/build_archive.py echo_tool
+```
 
 ## Open the admin UI from JupyterLab
 
