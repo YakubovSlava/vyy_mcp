@@ -51,6 +51,10 @@ class Manifest:
     def function_name(self) -> str:
         return self.entrypoint.split(":", 1)[1]
 
+    @property
+    def kind(self) -> str:
+        return "code"
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Manifest":
         missing = [f for f in ("name", "version", "description", "entrypoint") if f not in data]

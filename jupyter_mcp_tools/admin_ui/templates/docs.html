@@ -7,14 +7,17 @@
 <div class="card">
   <div class="doc">
     <h2>What a skill looks like on disk</h2>
-    <p>Every skill is a folder under the shared tools directory (shown on the "⚙" dialog in the Skills tab):</p>
+    <p>Every skill is a folder under the shared tools directory (shown on the "⚙" dialog in the Skills tab). There are two kinds of skill, distinguished by which file sits at the folder's root — a single shared directory can hold a mix of both:</p>
     <div class="tree">{{ shared_dir }}/tools/
-  &lt;skill-name&gt;/
+  &lt;code-skill-name&gt;/
     manifest.json
     &lt;module&gt;.py      (the entrypoint module manifest.json points to)
-    ... any other files the module imports</div>
+    ... any other files the module imports
+  &lt;doc-skill-name&gt;/
+    SKILL.md           (or skill.md)
+    ... any other supporting files/folders</div>
 
-    <h2>manifest.json</h2>
+    <h2>Code skills: manifest.json</h2>
     <pre><code>{
   "name": "echo",
   "version": "1.0.0",
@@ -33,9 +36,35 @@
 def echo(text: str, shout: bool = False) -> str:
     return text.upper() if shout else text</code></pre>
 
+    <h2>Doc skills: SKILL.md</h2>
+    <p>A doc skill has no Python code — it's a <code>SKILL.md</code> file (YAML frontmatter + a markdown body) plus any supporting files the body refers to. This is Claude's "Agent Skills" format.</p>
+    <pre><code>---
+name: repo-explainer
+description: Use this when the user asks how this repository is organized, where a particular piece of functionality lives, or wants an onboarding overview before making a change.
+---
+
+# Repo explainer
+
+... instructions for the agent go here ...
+
+See `references/architecture.md` for more detail, or call this skill
+again with `file="references/architecture.md"` to read it directly.</code></pre>
+    <ul>
+      <li><code>name</code> — unique slug (<code>[a-z0-9][a-z0-9_-]+</code>), also the MCP tool name.</li>
+      <li><code>description</code> — becomes the MCP tool's own description, so a connecting agent can decide when to call it purely from <code>tools/list</code> — write it the same way you'd write a code skill's <code>manifest.json</code> description, but aimed at "when should I use this," not "what does this do."</li>
+      <li>The body plus any other files in the folder (<code>references/</code>, images, etc.) are disclosed progressively, not dumped in one response — see the next section.</li>
+    </ul>
+
+    <h2>Calling a doc skill: progressive disclosure</h2>
+    <ul>
+      <li>Calling the tool with <strong>no arguments</strong> returns the <code>SKILL.md</code> body plus a listing of the other files in the skill's folder.</li>
+      <li>Calling it again with <strong>a <code>file</code> argument</strong> set to one of those listed paths returns that file's content as text.</li>
+    </ul>
+    <p>This keeps the initial tool response small — an agent only pulls in the extra files it actually needs for the task at hand. A full working example lives in <code>examples/repo_explainer/</code>.</p>
+
     <h2>Two ways to install a skill</h2>
     <ul>
-      <li><strong>Upload a .zip</strong> via "+" on the Skills tab — the zip's root must contain <code>manifest.json</code> and the entrypoint module, same layout as above.</li>
+      <li><strong>Upload a .zip</strong> via "+" on the Skills tab — the zip's root must contain either <code>manifest.json</code> (code skill) or <code>SKILL.md</code>/<code>skill.md</code> (doc skill), same layout as above.</li>
       <li><strong>Drop the folder directly</strong> into <code>{{ shared_dir }}/tools/&lt;skill-name&gt;/</code> on disk — no upload needed, this works identically.</li>
     </ul>
 
@@ -44,7 +73,7 @@ def echo(text: str, shout: bool = False) -> str:
       <li>The Skills tab reads the directory fresh on every page load — changes are visible immediately on refresh.</li>
       <li>The MCP server (what real agents/users call) re-scans the directory every 5 seconds and registers/unregisters tools automatically — no restart needed, whether the change came from the "+" upload or from editing files on disk directly.</li>
     </ul>
-    <p>Validation on install is structural only (valid zip/folder, manifest fields, module parses, function exists) — code is not executed during validation, only when a client actually calls the tool.</p>
+    <p>Validation on install is structural only (valid zip/folder, required fields present, module parses and the entrypoint function exists for code skills; frontmatter is valid YAML with a non-empty body for doc skills) — code is not executed during validation, only when a client actually calls the tool.</p>
 
     <h2>Returning multiple files for a human to run themselves</h2>
     <p>A skill can return more than just a string — any JSON-serializable value gets sent straight back in the MCP response. Use this for a skill that should hand back files for the <em>calling human</em> to save and run under their own account, rather than a text answer. The server never runs anything here — same idea as the Bitbucket connection notebook.</p>

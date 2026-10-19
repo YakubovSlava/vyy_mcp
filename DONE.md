@@ -541,3 +541,78 @@
   contrasting `test_binding_127_0_0_1_still_locks_host_header` (confirms
   the fix is "pass `host` through correctly," not "disable the check
   globally"). Full suite: 73/73 passing.
+
+## 2026-10-19 (second skill bundle kind: SKILL.md-based doc skills)
+
+- Added `common/doc_skill.py`: parses `SKILL.md`/`skill.md` (YAML
+  frontmatter + markdown body, Claude's "Agent Skills" format) into a new
+  `DocSkillManifest` dataclass (`name`, `description`, `body`, `version`,
+  `files`), with `validate_doc_skill_archive`/`validate_doc_skill_dir` for
+  zip- and on-disk validation respectively — structural only (frontmatter
+  is valid YAML, required fields present, name matches the existing
+  `NAME_RE`, body non-empty, no path-traversal members), never executing
+  anything, same posture as `common/manifest.py`.
+- Rewrote `common/registry.py` to treat code skills (`manifest.json`) and
+  doc skills (`SKILL.md`) as one polymorphic `AnyManifest = Manifest |
+  DocSkillManifest` union: `install_tool`/`list_tools` detect which kind
+  an archive/folder is by presence of `manifest.json` vs. `SKILL.md`
+  rather than requiring an explicit kind field, so both can coexist in
+  the same shared directory. Removed the unused `get_tool()` (confirmed
+  via grep nothing referenced it). Found and fixed a latent bug while
+  doing this: the new `_validate_archive` called `zipfile.ZipFile()`
+  directly without an `is_zipfile()` guard first, so a non-zip upload
+  raised an unhandled `BadZipFile` instead of the clean
+  `ToolValidationError` the admin UI expects — broke
+  `test_upload_invalid_archive_shows_error` until fixed.
+- `mcp_server/server.py`: `sync_tools()` now branches on manifest type —
+  doc skills get a tool built by the new `_make_doc_skill_tool`, instead
+  of `load_entrypoint`. The generated tool implements progressive
+  disclosure per explicit decision (asked via AskUserQuestion: SKILL.md +
+  file listing first vs. everything in one call — chose the former): a
+  no-argument call returns the `SKILL.md` body plus a listing of the
+  skill's other files; a call with `file="<path>"` returns that file's
+  text content, or a clear error listing valid paths otherwise. The
+  frontmatter `description` is passed straight into `FastMCP.add_tool` as
+  the tool's own description — the actual point of the feature, per
+  explicit request: "на уровне инструмента должно задаваться описание,
+  чтобы агент понимал, когда нужно обращаться к конкретному скиллу" — so
+  a connecting agent can decide whether to call a given skill purely from
+  `tools/list`, without reading `SKILL.md`'s body first.
+- Added `manifest.kind`/`DocSkillManifest.kind` (`"code"`/`"doc"`)
+  properties purely for the admin UI to label skills with. Found that
+  `dataclasses.asdict()` silently drops `@property` fields — fixed
+  `registry.manifest_to_dict()` to merge `kind` in explicitly rather than
+  relying on `asdict()` alone.
+- Admin UI: `templates/index.html`'s skill rows now show a small
+  "code"/"SKILL.md" badge (new `.skill-kind` CSS in `base.html`) next to
+  each skill's name, and the "Add a skill" dialog's help text mentions
+  SKILL.md as an alternative upload format. `templates/docs.html` gained
+  a full "Doc skills: SKILL.md" + "Calling a doc skill: progressive
+  disclosure" section alongside the existing manifest.json documentation,
+  and the "What a skill looks like on disk" tree now shows both layouts.
+- Added `examples/repo_explainer/` (a real `SKILL.md` + `references/
+  architecture.md`) as the example doc skill, used both in the Docs page
+  references and in tests — zipped on the fly via the existing
+  `_zip_example()` test helper, not committed as an archive (per the
+  project's "no zip archives in the repo" rule).
+- Tests: new `test_doc_skill.py` (13 tests — frontmatter parsing, missing/
+  invalid frontmatter, zip/dir validation happy paths and every failure
+  mode: not-a-zip, missing SKILL.md, missing required field, invalid
+  name, path traversal, empty body). `test_registry.py` gained 4 tests
+  (install/list a doc skill, code+doc skills coexisting, archive with
+  neither manifest.json nor SKILL.md raising, `manifest_to_dict` working
+  for a doc skill). `test_server_sync.py` gained
+  `test_doc_skill_round_trip`, exercising the real `repo_explainer`
+  example through install → sync → call for the no-arg, `file=`, and
+  nonexistent-file cases. `requirements.txt` gained `pyyaml>=6.0`. Full
+  suite: 91/91 passing.
+- Verified end-to-end against the real, already-running MCP server (not
+  just unit tests): installed the `repo_explainer` example into the live
+  shared directory, hit "unknown tool" at first because the long-running
+  server process still had the pre-change `registry.py`/`doc_skill.py`
+  loaded in memory — restarted it
+  (`pkill -f jupyter-mcp-tools-server` then relaunched with the same
+  `MCP_TOOLS_DATA_DIR`/transport/host/port as before), then ran a full
+  `initialize()` → `list_tools()` → `call_tool()` round trip through a
+  real `mcp` SDK client session and confirmed the tool's description and
+  both calling conventions (no-arg, `file=`) worked as designed.

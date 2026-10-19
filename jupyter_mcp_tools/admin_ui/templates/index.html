@@ -30,6 +30,7 @@
     {% for t in tools %}
     <div class="skill-row">
       <span class="skill-name">{{ t.name }}</span>
+      <span class="skill-kind kind-{{ t.kind }}">{{ "SKILL.md" if t.kind == "doc" else "code" }}</span>
       <span class="skill-version">v{{ t.version }}</span>
       <span class="skill-desc">{{ t.description }}</span>
       <form method="post" action="tools/{{ t.name }}/delete" onsubmit="return confirm('Remove {{ t.name }} for all users?');">
@@ -85,7 +86,7 @@
 <dialog id="addSkillDialog">
   <form method="post" action="tools/upload" enctype="multipart/form-data" class="dialog-body">
     <h3>Add a skill</h3>
-    <p>Upload a <code>.zip</code> containing <code>manifest.json</code> and the entrypoint module it references.</p>
+    <p>Upload a <code>.zip</code> containing either <code>manifest.json</code> and the entrypoint module it references, or a <code>SKILL.md</code> (with its supporting files) for a documentation-style skill. See the "Docs" tab for both formats.</p>
     <label>
       Archive
       <input type="file" name="archive" accept=".zip" required />

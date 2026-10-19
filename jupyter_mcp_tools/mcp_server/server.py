@@ -21,11 +21,44 @@ from starlette.responses import Response
 
 from ..common import registry, users
 from ..common.config import load_config
+from ..common.doc_skill import DocSkillManifest
 from ..common.loader import load_entrypoint
 
 logger = logging.getLogger("jupyter_mcp_tools.server")
 
 SYNC_INTERVAL_SECONDS = 5.0
+
+
+def _make_doc_skill_tool(shared_dir: Path, manifest: DocSkillManifest):
+    """Build the callable registered for a doc skill (SKILL.md bundle).
+
+    Progressive disclosure, same idea the Agent Skills format itself is
+    built around: calling with no argument returns the main instructions
+    plus a listing of the bundle's other files, so an agent isn't handed
+    the whole bundle's content on every call — only once it decides (from
+    the listing) that a specific file is actually relevant.
+    """
+    skill_dir = registry.tools_dir(shared_dir) / manifest.name
+
+    def skill(file: str = "") -> str:
+        """Call with no arguments for the skill's main instructions and a
+        list of its other files; call with `file` set to one of those
+        paths to read that file's content."""
+        if not file:
+            listing = "\n".join(f"- {f}" for f in manifest.files) or "(no additional files)"
+            return f"{manifest.body}\n\n---\nFiles available in this skill (call again with file=\"<path>\" to read one):\n{listing}"
+
+        if file not in manifest.files:
+            available = ", ".join(manifest.files) or "(none)"
+            return f"Error: '{file}' is not a file in this skill. Available files: {available}"
+
+        target = skill_dir / file
+        try:
+            return target.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            return f"Error: '{file}' is not a text file and can't be returned by this tool."
+
+    return skill
 
 
 def sync_tools(app: FastMCP, shared_dir: Path) -> None:
@@ -38,11 +71,14 @@ def sync_tools(app: FastMCP, shared_dir: Path) -> None:
         logger.info("unregistered tool removed from shared dir: %s", name)
 
     for name, manifest in manifests.items():
-        try:
-            entrypoint = load_entrypoint(shared_dir, manifest)
-        except Exception:
-            logger.exception("failed to load tool '%s', skipping", name)
-            continue
+        if isinstance(manifest, DocSkillManifest):
+            entrypoint = _make_doc_skill_tool(shared_dir, manifest)
+        else:
+            try:
+                entrypoint = load_entrypoint(shared_dir, manifest)
+            except Exception:
+                logger.exception("failed to load tool '%s', skipping", name)
+                continue
 
         # Always re-register so edits to an already-installed tool (same
         # name, updated code) take effect without a server restart.

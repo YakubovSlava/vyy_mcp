@@ -1,9 +1,32 @@
+import zipfile
+
 import pytest
 
 from jupyter_mcp_tools.common import registry
+from jupyter_mcp_tools.common.doc_skill import DocSkillManifest
 from jupyter_mcp_tools.common.loader import load_entrypoint
+from jupyter_mcp_tools.common.manifest import ToolValidationError
 from jupyter_mcp_tools.common.registry import ToolAlreadyExistsError, ToolNotFoundError
 from jupyter_mcp_tools.tests.conftest import VALID_MANIFEST, VALID_MODULE
+
+VALID_SKILL_MD = """---
+name: repo-explainer
+description: Use this when the user asks about the repo's structure.
+---
+
+# Repo explainer
+
+Body content.
+"""
+
+
+def _make_doc_skill_archive(tmp_path, name="repo-explainer", skill_md=VALID_SKILL_MD, extra_files=None):
+    archive = tmp_path / f"{name}.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("SKILL.md", skill_md)
+        for path, content in (extra_files or {}).items():
+            zf.writestr(path, content)
+    return archive
 
 
 def test_install_list_remove_round_trip(make_archive, shared_dir):
@@ -55,3 +78,43 @@ def test_list_tools_skips_corrupted_entries(shared_dir):
     bad.mkdir(parents=True)
     (bad / "manifest.json").write_text("not json")
     assert registry.list_tools(shared_dir) == []
+
+
+def test_install_and_list_doc_skill(tmp_path, shared_dir):
+    archive = _make_doc_skill_archive(tmp_path, extra_files={"references/notes.md": "notes"})
+
+    manifest = registry.install_tool(archive, shared_dir)
+    assert isinstance(manifest, DocSkillManifest)
+    assert manifest.name == "repo-explainer"
+
+    tools = registry.list_tools(shared_dir)
+    assert [t.name for t in tools] == ["repo-explainer"]
+    assert isinstance(tools[0], DocSkillManifest)
+    assert tools[0].files == ("references/notes.md",)
+
+
+def test_code_and_doc_skills_coexist(tmp_path, make_archive, shared_dir):
+    code_archive = make_archive("greet", VALID_MANIFEST, VALID_MODULE)
+    doc_archive = _make_doc_skill_archive(tmp_path)
+
+    registry.install_tool(code_archive, shared_dir)
+    registry.install_tool(doc_archive, shared_dir)
+
+    names = sorted(t.name for t in registry.list_tools(shared_dir))
+    assert names == ["greet", "repo-explainer"]
+
+
+def test_install_archive_without_manifest_or_skill_md_raises(tmp_path, shared_dir):
+    archive = tmp_path / "neither.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("readme.txt", "hi")
+    with pytest.raises(ToolValidationError, match="manifest.json or SKILL.md"):
+        registry.install_tool(archive, shared_dir)
+
+
+def test_manifest_to_dict_works_for_doc_skill(tmp_path, shared_dir):
+    archive = _make_doc_skill_archive(tmp_path)
+    manifest = registry.install_tool(archive, shared_dir)
+    d = registry.manifest_to_dict(manifest)
+    assert d["name"] == "repo-explainer"
+    assert "body" in d

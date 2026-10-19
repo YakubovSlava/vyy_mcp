@@ -79,3 +79,29 @@ def test_multi_file_skill_result_round_trip(shared_dir, tmp_path):
     assert filenames == ["setup.sh", "config.yaml"]
     assert "demo" in payload["files"][0]["content"]
     assert payload["files"][0]["run_hint"] == "bash setup.sh"
+
+
+def test_doc_skill_round_trip(shared_dir, tmp_path):
+    """examples/repo_explainer is a SKILL.md-based doc skill (no Python
+    entrypoint). Exercises the real example through install -> sync ->
+    call, both the no-argument (main doc + file listing) and file=
+    (specific file content) cases, the same way the MCP server loads it."""
+    archive = _zip_example("repo_explainer", tmp_path)
+    registry.install_tool(archive, shared_dir)
+
+    app = build_app(shared_dir)
+    sync_tools(app, shared_dir)
+
+    tools = app._tool_manager.list_tools()
+    assert [t.name for t in tools] == ["repo-explainer"]
+    assert "organized" in tools[0].description
+
+    content, _ = asyncio.run(app.call_tool("repo-explainer", {}))
+    assert "Repo explainer" in content[0].text
+    assert "references/architecture.md" in content[0].text
+
+    content, _ = asyncio.run(app.call_tool("repo-explainer", {"file": "references/architecture.md"}))
+    assert "Architecture notes" in content[0].text
+
+    content, _ = asyncio.run(app.call_tool("repo-explainer", {"file": "nope.md"}))
+    assert "not a file in this skill" in content[0].text

@@ -290,7 +290,12 @@ PLAN.md for the explicit trade-off.
 
 ## Tool archive format
 
-A tool archive is a `.zip` with, at minimum:
+A tool archive is a `.zip` holding one of two kinds of skill, detected by
+which file sits at its root — a shared directory can hold a mix of both.
+
+### Code skills
+
+At minimum:
 
 ```
 manifest.json
@@ -322,6 +327,41 @@ validation, but it **is** executed when a client calls the tool. This
 project assumes a trusted internal environment (the same trust boundary as
 your JupyterHub/server login), not a public multi-tenant sandbox — don't
 expose the admin UI to untrusted users.
+
+### Doc skills
+
+A doc skill has no Python code — it's a `SKILL.md` (or `skill.md`) file at
+the archive root, YAML frontmatter plus a markdown body, plus any
+supporting files/folders the body refers to. This is Claude's "Agent
+Skills" format:
+
+```
+SKILL.md
+references/architecture.md   (any supporting files the body refers to)
+```
+
+```markdown
+---
+name: repo-explainer
+description: Use this when the user asks how this repository is organized, where a particular piece of functionality lives, or wants an onboarding overview before making a change.
+---
+
+# Repo explainer
+
+... instructions for the agent go here ...
+```
+
+- `name` — unique slug (`[a-z0-9][a-z0-9_-]+`), also the MCP tool name.
+- `description` — becomes the MCP tool's own description, so a connecting
+  agent can decide when to call it purely from `tools/list` without
+  reading the body first.
+
+Calling the resulting MCP tool uses progressive disclosure, not a single
+dump of everything: with no arguments it returns the `SKILL.md` body plus
+a listing of the skill's other files; calling it again with `file="<one
+of those paths>"` returns that specific file's content. See
+`examples/repo_explainer/` for a complete example and `mcp_server/server.py`'s
+`_make_doc_skill_tool` for the implementation.
 
 ### Returning multiple files for a human to run themselves
 

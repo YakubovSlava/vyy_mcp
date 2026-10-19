@@ -308,6 +308,54 @@ available to every user of the server — without restarting anything.
   `content_list` — `test_multi_file_skill_result_round_trip` in
   `test_server_sync.py` handles both rather than assuming one.
 
+- **Doc skills are a second bundle kind, detected by presence rather than
+  an explicit "kind" field.** A skill folder/archive is either a code
+  skill (`manifest.json` at its root) or a doc skill (`SKILL.md`/
+  `skill.md` at its root) — `registry._validate_archive`/`_load_installed`
+  branch on which file exists rather than requiring an upload to declare
+  its kind up front. Chosen because Claude's "Agent Skills" convention
+  already uses `SKILL.md`'s mere presence as the signal, and because it
+  means an existing manifest.json-based skill archive needs no migration
+  — nothing about it changes. `common/doc_skill.py`'s `DocSkillManifest`
+  and `common/manifest.py`'s `Manifest` both expose a `.kind` property
+  (`"doc"`/`"code"`) purely for the admin UI to label them with; it isn't
+  used anywhere in the validation/dispatch logic itself, which stays
+  presence-based throughout (`registry.AnyManifest = Manifest |
+  DocSkillManifest`).
+- **A doc skill's `description` frontmatter field becomes the MCP tool's
+  own `description`**, not just documentation. This is the entire point
+  of the feature per explicit request — "на уровне инструмента должно
+  задаваться описание, чтобы агент понимал, когда нужно обращаться к
+  конкретному скиллу" (the tool-level description must let an agent know
+  when to reach for this specific skill). `mcp_server/server.py`'s
+  `sync_tools()` passes `manifest.description` into `FastMCP.add_tool`
+  for doc skills the same way a code skill's docstring/description flows
+  through today, so a connecting agent can decide whether to invoke the
+  skill purely from `tools/list`, without reading `SKILL.md`'s body first.
+- **Doc skills use progressive disclosure, not a single bulk response.**
+  Asked explicitly (file content on every call vs. SKILL.md + listing
+  first, files on request) — chose the latter. A no-argument call to a
+  doc skill's tool (`_make_doc_skill_tool` in `mcp_server/server.py`)
+  returns the `SKILL.md` body plus a plain listing of the skill's other
+  files; a follow-up call with `file="<path>"` returns that one file's
+  text content, or an error listing the valid paths if it doesn't match.
+  Keeps the typical case (an agent just needs the main instructions)
+  cheap, while still letting an agent pull in `references/*.md` or
+  similar supporting files only when the task actually needs them —
+  mirrors how Claude's own Agent Skills are meant to be consumed.
+- **`get_tool()` was removed from `registry.py`** while reworking it to
+  support both bundle kinds — grepped the codebase first and confirmed no
+  production code or test referenced it; keeping an unused accessor
+  "just in case" isn't this project's convention (see top-level
+  guidelines). `list_tools()`/`install_tool()`/`manifest_to_dict()` are
+  the only entry points the admin UI and MCP server actually use.
+- **`dataclasses.asdict()` silently drops `@property` fields** — found
+  while adding `.kind` to both manifest types: `asdict()` only serializes
+  real dataclass fields, so `manifest_to_dict()` has to merge `kind` in
+  explicitly (`{**asdict(manifest), "kind": manifest.kind}`) rather than
+  relying on `asdict()` alone, or the admin UI's code/doc badge would
+  silently always be missing that key.
+
 ## Shared tools directory layout
 
 ```
@@ -317,6 +365,9 @@ available to every user of the server — without restarting anything.
       manifest.json
       <module>.py
       ... (any other files from the archive)
+    <doc-skill-name>/
+      SKILL.md              (or skill.md)
+      ... (any other supporting files/folders)
 ```
 
 ## Known limitations / explicitly out of scope
