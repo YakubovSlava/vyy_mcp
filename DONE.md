@@ -408,3 +408,56 @@
   `~/.jupyter_mcp_tools/` now contains only `shared_tools/`, as intended.
 - Added `test_paths.py` (4 tests: default, override, all-four-share-it,
   specific-override-still-wins). Full suite: 71/71 passing.
+
+## 2026-10-19 (fixed URL handling for real JupyterHub — relative links + a known-working reference)
+
+- User reported `/user/<username>/proxy/<port>` redirecting into `/lab`
+  on their actual production deployment — a **real JupyterHub**, not the
+  standalone jupyter-lab this project had been dev-tested against so far.
+  The `X-Forwarded-Prefix`-based link-building from the previous session
+  (see PLAN.md's superseded entry) depends on `jupyter-server-proxy`
+  setting that header and rewriting `Location` headers on redirects —
+  neither of which JupyterHub's own front-door proxy
+  (`configurable-http-proxy`) does; it's a dumb passthrough. With the
+  header absent, links collapsed to plain absolute paths that escaped
+  the Hub's `/user/<name>/...` prefix in the browser.
+- Diagnosed by reading the real prod Jupyter log line the user pasted
+  (`"GET / HTTP/1.1" 303 See Other`) — confirmed the request had already
+  lost its `/user/.../proxy/...` prefix by the time it reached the
+  single-user server, pointing at the Hub's proxy layer rather than this
+  app.
+- Found and inspected a **known-working sibling project on the same
+  Hub** (`github.com/YakubovSlava/vyy_trees`, cloned directly for
+  inspection rather than guessing) to see what pattern actually survives
+  that specific proxy. It uses exactly two things: every link/fetch URL
+  is a plain relative path with no leading `/` at all, and a single
+  inline `<script>` at the top of `<head>` that redirects client-side to
+  add a trailing slash if the current URL doesn't have one
+  (`location.replace(location.pathname + "/")`) — no server-side
+  URL-building logic, no proxy headers read anywhere.
+- Ported that exact pattern: `templates/base.html` and `templates/login.html`
+  gained the trailing-slash self-correct script; removed
+  `_request_base()`/`X-Forwarded-Prefix` entirely and every
+  `{{ base }}/<route>` in the templates is now a plain relative path
+  (`action="tools/upload"`, `href="users"`, `href="."` for the root).
+  For server-side redirects (where a relative `Location` must still
+  resolve against whatever depth the *current* route happens to be at),
+  added `_relative_redirect()` in `admin_ui/main.py`: computes the right
+  number of `../` from `request.url.path`'s segment count rather than
+  assuming a fixed depth or relying on any proxy to fix it up. Verified
+  the computed values directly with `curl` against the real running
+  admin UI at every route depth (root → `login`, `/tools/upload` →
+  `../login`, `/tools/{name}/delete` → `../../login`,
+  `/config/shared-dir` → `../login`) before touching the test suite.
+- Added a caveat to `jupyter_ext.py`'s docstring: don't enable it on a
+  real Hub — there, `/user/<name>/` is a genuine prefix the Hub's proxy
+  already understands and strips before the request ever reaches this
+  extension's handler, so it would be dead code at best.
+- Updated ~20 test assertions across `test_admin_api.py`,
+  `test_docs_page.py`, `test_user_registration_api.py`,
+  `test_remote_mode.py` that had hardcoded the old absolute-path/
+  `X-Forwarded-Prefix` expectations, replacing the two
+  forwarded-prefix-specific tests with one `test_form_actions_are_relative`.
+  Full suite: 70/70 passing (one net fewer test than before — two old
+  prefix-specific tests collapsed into one, since there's no longer a
+  "with prefix" vs "without prefix" distinction to test separately).

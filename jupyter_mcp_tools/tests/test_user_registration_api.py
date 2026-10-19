@@ -58,12 +58,12 @@ def test_no_users_yet_shows_empty_state(client):
 def test_users_page_requires_admin_login(app_module):
     anon = TestClient(app_module.app)
     r = anon.get("/users", follow_redirects=False)
-    assert r.headers["location"] == "/login"
+    assert r.headers["location"] == "login"
 
 
 def test_skills_and_users_pages_link_to_each_other(client):
     r = client.get("/")
-    assert 'href="/users"' in r.text
+    assert 'href="users"' in r.text
 
     r = client.get("/users")
-    assert 'href="/"' in r.text
+    assert 'href="."' in r.text

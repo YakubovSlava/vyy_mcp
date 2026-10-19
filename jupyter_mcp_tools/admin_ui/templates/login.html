@@ -1,6 +1,13 @@
 <!doctype html>
 <html lang="en">
 <head>
+  <script>
+    // See templates/base.html for why: relative links only resolve
+    // correctly once the current URL ends in "/".
+    if (!location.pathname.endsWith("/")) {
+      location.replace(location.pathname + "/" + location.search + location.hash);
+    }
+  </script>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>MJApp (Lab edition) — Sign in</title>
@@ -91,7 +98,7 @@
 
     {% if error %}<div class="banner err">Incorrect username or password.</div>{% endif %}
 
-    <form method="post" action="{{ base }}/login">
+    <form method="post" action="login">
       <label>
         Username
         <input type="text" name="username" autocomplete="username" required autofocus />

@@ -8,6 +8,12 @@ JupyterHub in front of it), so there's no real ``/user/<username>/``
 routing layer — see PLAN.md. The ``<username>`` segment is accepted and
 ignored; it's cosmetic only, not an identity check.
 
+**Do not enable this on a real JupyterHub.** There, ``/user/<name>/`` is
+a genuine routing prefix the Hub's own proxy already understands — this
+extension is unnecessary noise at best there, since the request never
+reaches this handler with that prefix intact (the Hub strips it before
+forwarding to the single-user server in the first place).
+
 Enable it in jupyter_server_config.py (no entry-point/install step
 needed, just the dotted module path):
 

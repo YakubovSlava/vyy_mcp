@@ -57,14 +57,27 @@ class NotAuthenticated(Exception):
     pass
 
 
+def _relative_redirect(request: Request, target: str) -> str:
+    """Build a Location value relative to the CURRENT request path, so it
+    resolves correctly under any external mount prefix without needing
+    any proxy in front of us to rewrite it.
+
+    `target` is a path with no leading slash (e.g. "login", "." for the
+    app root). See PLAN.md for why this replaced an earlier
+    X-Forwarded-Prefix-based approach: jupyter-server-proxy happens to
+    rewrite Location headers on redirects, but JupyterHub's own proxy
+    (configurable-http-proxy) is a dumb passthrough and does not — a
+    plain "Location: /login" there resolves against the *domain* root in
+    the browser, escaping the Hub's /user/<name>/... prefix entirely.
+    """
+    segments = request.url.path.strip("/").split("/")
+    up = max(len(segments) - 1, 0)
+    return "../" * up + target
+
+
 @app.exception_handler(NotAuthenticated)
 def _redirect_to_login(request: Request, exc: NotAuthenticated) -> RedirectResponse:
-    # Deliberately NOT prefixed with _request_base(): jupyter-server-proxy
-    # already rewrites Location headers on redirect responses to prepend
-    # its own mount prefix (see _rewrite_location_header in its source).
-    # Adding the prefix here too would double it up
-    # (".../proxy/8766/proxy/8766/login") — see PLAN.md.
-    return RedirectResponse("/login", status_code=303)
+    return RedirectResponse(_relative_redirect(request, "login"), status_code=303)
 
 
 def require_admin_page(request: Request) -> str | None:
@@ -98,17 +111,6 @@ def require_admin_api(credentials: HTTPBasicCredentials | None = Depends(_basic_
             headers={"WWW-Authenticate": "Basic"},
         )
     return credentials.username
-
-
-def _request_base(request: Request) -> str:
-    """The external mount prefix this app is being proxied under, if any.
-
-    jupyter-server-proxy sets X-Forwarded-Prefix to the path it's proxying
-    us from (e.g. "/user/<name>/proxy/8766"). Every link/form action in
-    the template is built as f"{base}/<route>" so navigation is correct
-    regardless of trailing slash or how deep the current request path is.
-    """
-    return request.headers.get("x-forwarded-prefix", "").rstrip("/")
 
 
 def _remote_list_tools() -> tuple[list[dict], str | None]:
@@ -148,7 +150,6 @@ def _render(request: Request, **extra):
         request,
         "index.html",
         {
-            "base": _request_base(request),
             "remote": bool(MAIN_HOST),
             "active_page": "skills",
             "shared_dir": address_label,
@@ -167,7 +168,6 @@ def _render_users(request: Request, **extra):
         request,
         "users.html",
         {
-            "base": _request_base(request),
             "remote": bool(MAIN_HOST),
             "active_page": "users",
             "end_users": users.list_users(),
@@ -186,7 +186,6 @@ def _render_docs(request: Request):
         request,
         "docs.html",
         {
-            "base": _request_base(request),
             "remote": bool(MAIN_HOST),
             "active_page": "docs",
             "shared_dir": str(config.shared_dir_path),
@@ -196,21 +195,15 @@ def _render_docs(request: Request):
 
 @app.get("/login", response_class=HTMLResponse)
 def login_form(request: Request, error: str | None = None):
-    return templates.TemplateResponse(
-        request,
-        "login.html",
-        {"base": _request_base(request), "error": error},
-    )
+    return templates.TemplateResponse(request, "login.html", {"error": error})
 
 
 @app.post("/login")
 def login_submit(request: Request, username: str = Form(...), password: str = Form(...)):
-    # See _redirect_to_login: redirect Locations are deliberately
-    # prefix-free, since jupyter-server-proxy rewrites them itself.
     if not auth.verify_admin(username, password):
-        return RedirectResponse("/login?error=1", status_code=303)
+        return RedirectResponse(_relative_redirect(request, "login?error=1"), status_code=303)
 
-    response = RedirectResponse("/", status_code=303)
+    response = RedirectResponse(_relative_redirect(request, "."), status_code=303)
     response.set_cookie(
         session.COOKIE_NAME,
         session.create_token(username),
@@ -224,7 +217,7 @@ def login_submit(request: Request, username: str = Form(...), password: str = Fo
 
 @app.post("/logout")
 def logout(request: Request):
-    response = RedirectResponse("/login", status_code=303)
+    response = RedirectResponse(_relative_redirect(request, "login"), status_code=303)
     response.delete_cookie(session.COOKIE_NAME)
     return response
 

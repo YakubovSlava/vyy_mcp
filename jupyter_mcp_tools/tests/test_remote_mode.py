@@ -159,4 +159,4 @@ def test_child_relay_has_no_docs_page(child_client):
     # path for on a child relay.
     r = child_client.get("/docs")
     assert r.status_code == 404
-    assert 'href="/users"' not in child_client.get("/").text
+    assert 'href="users"' not in child_client.get("/").text

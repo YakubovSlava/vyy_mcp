@@ -1,6 +1,18 @@
 <!doctype html>
 <html lang="en">
 <head>
+  <script>
+    // Every link/form action on this page is relative (no leading "/"),
+    // so they resolve against the *current* URL regardless of what
+    // prefix a reverse proxy mounts us under (jupyter-server-proxy,
+    // JupyterHub's configurable-http-proxy, standalone, ...) — but that
+    // only works if the current URL ends in "/". Some proxies serve this
+    // page without ever redirecting to add one first. Self-correct
+    // before anything else on the page can be clicked. See PLAN.md.
+    if (!location.pathname.endsWith("/")) {
+      location.replace(location.pathname + "/" + location.search + location.hash);
+    }
+  </script>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>MJApp (Lab edition){% block title_suffix %}{% endblock %}</title>
@@ -268,16 +280,16 @@
       </div>
       {% if not remote %}
       <nav class="tabs">
-        <a href="{{ base }}/" class="{{ 'active' if active_page == 'skills' else '' }}">Skills</a>
-        <a href="{{ base }}/users" class="{{ 'active' if active_page == 'users' else '' }}">Users</a>
-        <a href="{{ base }}/docs" class="{{ 'active' if active_page == 'docs' else '' }}">Docs</a>
+        <a href="." class="{{ 'active' if active_page == 'skills' else '' }}">Skills</a>
+        <a href="users" class="{{ 'active' if active_page == 'users' else '' }}">Users</a>
+        <a href="docs" class="{{ 'active' if active_page == 'docs' else '' }}">Docs</a>
       </nav>
       {% endif %}
     </div>
     <div class="header-actions">
       {% block header_actions %}{% endblock %}
       {% if not remote %}
-      <form method="post" action="{{ base }}/logout">
+      <form method="post" action="logout">
         <button type="submit" class="icon-btn" title="Sign out">⎋</button>
       </form>
       {% endif %}

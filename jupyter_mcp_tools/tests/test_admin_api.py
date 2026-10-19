@@ -111,21 +111,14 @@ def test_delete_missing_tool_404(client):
     assert r.status_code == 404
 
 
-def test_form_actions_use_forwarded_prefix(client):
-    # jupyter-server-proxy's generic /proxy/<port> route can serve this
-    # page without a trailing slash, which would break plain relative
-    # form actions (see PLAN.md). Links must instead be built from
-    # X-Forwarded-Prefix so they're correct however the page was reached.
-    prefix = "/user/alice/proxy/8766"
-    r = client.get("/", headers={"X-Forwarded-Prefix": prefix})
-    assert f'action="{prefix}/tools/upload"' in r.text
-    assert f'action="{prefix}/config/shared-dir"' in r.text
-
-
-def test_form_actions_without_proxy_prefix_are_root_relative(client):
+def test_form_actions_are_relative(client):
+    # Relative (no leading "/") form actions resolve correctly under any
+    # external mount prefix without depending on a proxy header, as long
+    # as the current page ends in "/" — see the trailing-slash
+    # self-correct script in templates/base.html and PLAN.md.
     r = client.get("/")
-    assert 'action="/tools/upload"' in r.text
-    assert 'action="/config/shared-dir"' in r.text
+    assert 'action="tools/upload"' in r.text
+    assert 'action="config/shared-dir"' in r.text
 
 
 def test_login_page_loads(anon_client):
@@ -135,7 +128,10 @@ def test_login_page_loads(anon_client):
 
 
 def test_unauthenticated_html_routes_redirect_to_login(anon_client, tmp_path):
-    assert anon_client.get("/", follow_redirects=False).headers["location"] == "/login"
+    # Redirect targets are relative to the request path's depth (see
+    # _relative_redirect in admin_ui/main.py) — correct regardless of any
+    # external mount prefix, since no proxy needs to rewrite them.
+    assert anon_client.get("/", follow_redirects=False).headers["location"] == "login"
 
     data = _archive_bytes(tmp_path)
     r = anon_client.post(
@@ -143,13 +139,13 @@ def test_unauthenticated_html_routes_redirect_to_login(anon_client, tmp_path):
         files={"archive": ("greet.zip", data, "application/zip")},
         follow_redirects=False,
     )
-    assert r.headers["location"] == "/login"
+    assert r.headers["location"] == "../login"
 
     r = anon_client.post("/tools/does-not-exist/delete", follow_redirects=False)
-    assert r.headers["location"] == "/login"
+    assert r.headers["location"] == "../../login"
 
     r = anon_client.post("/config/shared-dir", data={"path": str(tmp_path)}, follow_redirects=False)
-    assert r.headers["location"] == "/login"
+    assert r.headers["location"] == "../login"
 
 
 def test_login_wrong_password_redirects_with_error(anon_client):
@@ -159,7 +155,7 @@ def test_login_wrong_password_redirects_with_error(anon_client):
         follow_redirects=False,
     )
     assert r.status_code == 303
-    assert r.headers["location"] == "/login?error=1"
+    assert r.headers["location"] == "login?error=1"
 
 
 def test_login_unknown_user_rejected(anon_client):
@@ -168,13 +164,13 @@ def test_login_unknown_user_rejected(anon_client):
         data={"username": "mallory", "password": ADMIN_PASSWORD},
         follow_redirects=False,
     )
-    assert r.headers["location"] == "/login?error=1"
+    assert r.headers["location"] == "login?error=1"
 
 
 def test_logout_clears_session(client):
     assert client.get("/").status_code == 200
     client.post("/logout")
-    assert client.get("/", follow_redirects=False).headers["location"] == "/login"
+    assert client.get("/", follow_redirects=False).headers["location"] == "login"
 
 
 def test_api_requires_basic_auth_not_session_cookie(client):

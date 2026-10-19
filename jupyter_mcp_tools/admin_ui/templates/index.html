@@ -16,7 +16,7 @@
       <span class="skill-name">{{ t.name }}</span>
       <span class="skill-version">v{{ t.version }}</span>
       <span class="skill-desc">{{ t.description }}</span>
-      <form method="post" action="{{ base }}/tools/{{ t.name }}/delete" onsubmit="return confirm('Remove {{ t.name }} for all users?');">
+      <form method="post" action="tools/{{ t.name }}/delete" onsubmit="return confirm('Remove {{ t.name }} for all users?');">
         <button type="submit" class="remove-btn">Remove</button>
       </form>
     </div>
@@ -46,7 +46,7 @@
     </div>
   </div>
   {% else %}
-  <form method="post" action="{{ base }}/config/shared-dir" class="dialog-body">
+  <form method="post" action="config/shared-dir" class="dialog-body">
     <h3>Shared tools directory</h3>
     <p>Skills installed here are loaded by the MCP server and shared with every user of this server.</p>
     <label>
@@ -67,7 +67,7 @@
 </dialog>
 
 <dialog id="addSkillDialog">
-  <form method="post" action="{{ base }}/tools/upload" enctype="multipart/form-data" class="dialog-body">
+  <form method="post" action="tools/upload" enctype="multipart/form-data" class="dialog-body">
     <h3>Add a skill</h3>
     <p>Upload a <code>.zip</code> containing <code>manifest.json</code> and the entrypoint module it references.</p>
     <label>

@@ -35,7 +35,7 @@ def client(app_module):
 def test_docs_page_requires_admin_login(app_module):
     anon = TestClient(app_module.app)
     r = anon.get("/docs", follow_redirects=False)
-    assert r.headers["location"] == "/login"
+    assert r.headers["location"] == "login"
 
 
 def test_docs_page_shows_manifest_example(client):
@@ -62,8 +62,8 @@ def test_docs_page_shows_configured_shared_dir(client, tmp_path):
 
 def test_nav_links_to_docs(client):
     r = client.get("/")
-    assert 'href="/docs"' in r.text
+    assert 'href="docs"' in r.text
 
     r = client.get("/docs")
-    assert 'href="/"' in r.text
-    assert 'href="/users"' in r.text
+    assert 'href="."' in r.text
+    assert 'href="users"' in r.text

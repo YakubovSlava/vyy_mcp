@@ -104,14 +104,15 @@ and open it from the browser at:
 <jupyterhub-base>/user/<name>/proxy/8766
 ```
 
-(the trailing slash is *not* required — `jupyter-server-proxy`'s generic
-`/proxy/<port>` route doesn't always redirect to add one before serving
-the page, which used to break this app's links when it assumed one. The
-admin UI now reads the `X-Forwarded-Prefix` header that
-`jupyter-server-proxy` sends on every proxied request and builds every
-link/form action as `{that prefix}/<route>` instead of a plain relative
-path, so it resolves correctly regardless of trailing slash, proxy depth,
-or whether it's reached standalone on its own host:port at all.)
+Every link/form action on every page is a plain relative path (no
+`X-Forwarded-Prefix` or similar header needed) — the page redirects
+itself client-side to add a trailing slash if its URL doesn't have one,
+then every relative link just resolves correctly from there, regardless
+of what's proxying the request (standalone, `jupyter-server-proxy`, or a
+real JupyterHub whose own proxy doesn't rewrite anything for us). See
+PLAN.md for the two earlier approaches that broke before landing on this
+one — notably, URLs built from `X-Forwarded-Prefix` worked under
+`jupyter-server-proxy` but broke under a real Hub's plainer proxy.
 
 `jupyter-server-proxy`'s generic port proxy only forwards the request; it
 doesn't add its own access control, but every route behind it now requires

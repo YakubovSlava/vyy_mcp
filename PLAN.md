@@ -58,28 +58,48 @@ available to every user of the server — without restarting anything.
   access pattern the actual deployment uses — no Launcher card, just
   `uvicorn admin_ui.main:app --port <port>` run as a normal background
   process and opened at that URL.
-- **Links are built from `X-Forwarded-Prefix`, not from relative paths.**
-  First attempt used plain relative form `action`s (`tools/upload`) on
-  the theory that they'd resolve correctly under any mount prefix. That
-  broke in practice: `jupyter-server-proxy`'s generic `/proxy/<port>`
-  route doesn't reliably redirect to add a trailing slash before serving
-  the page, so the browser resolved `tools/upload` one directory too high
-  (`.../proxy/config/shared-dir` instead of
-  `.../proxy/8766/config/shared-dir`), which Jupyter's own Tornado layer
-  then rejected with `403 '_xsrf' argument missing from POST` — a
-  misleading error to debug, since it comes from Jupyter, not this app.
-  Root-caused via the real Jupyter server's log
-  (`/home/vyy/.../remote_connection/jupyter.log`), which showed the exact
-  mis-resolved request path and its `Referer`. Fix: `jupyter-server-proxy`
-  already sends `X-Forwarded-Prefix` with the real external mount path on
-  every proxied request (and even rewrites `Location` headers using it —
-  so the earlier "never redirect" decision was more cautious than
-  strictly necessary). `admin_ui/main.py`'s `_request_base()` reads that
-  header and every link/form `action` in `templates/index.html` is built
-  as `{{ base }}/<route>` (an absolute-from-domain-root path), so
-  navigation is correct regardless of trailing slash, current request
-  depth, or whether the app is reached standalone (where the header is
-  absent and `base` is simply `""`).
+- **Every link/form action is relative (no leading `/`), with a
+  client-side trailing-slash self-correct script — no proxy headers, no
+  server-side URL rewriting assumptions.** This went through two prior,
+  each eventually-broken designs; worth recording why both failed, since
+  it's tempting to reach for either again:
+  1. *Plain relative paths, no safety net.* `jupyter-server-proxy`'s
+     generic `/proxy/<port>` route doesn't reliably redirect to add a
+     trailing slash before serving the page, so the browser resolved
+     `tools/upload` one directory too high
+     (`.../proxy/config/shared-dir` instead of
+     `.../proxy/8766/config/shared-dir`), which Jupyter's own Tornado
+     layer rejected with a misleading `403 '_xsrf' argument missing from
+     POST` (the error looks like it's about this app; it's actually
+     Jupyter rejecting what looks like a cross-site POST to one of its
+     own routes). Root-caused via the real Jupyter server's log.
+  2. *Absolute paths built from the `X-Forwarded-Prefix` header.*
+     `jupyter-server-proxy` sends that header and even rewrites
+     `Location` on redirects to match — so this worked under
+     `jupyter-server-proxy`, including from a browser. It broke on a
+     **real JupyterHub** deployment: JupyterHub's own front-door proxy
+     (`configurable-http-proxy`) is a dumb passthrough that does
+     **not** set `X-Forwarded-Prefix` or rewrite `Location` headers the
+     way `jupyter-server-proxy`'s own handler does. With no header,
+     `base` fell back to `""`, so `{{ base }}/<route>` collapsed to a
+     plain absolute path (`/tools/upload`) — which resolves against the
+     *domain* root in the browser, escaping the Hub's
+     `/user/<name>/...` prefix entirely and landing on Jupyter's own
+     default route (observed as a `GET /` 303 in the Jupyter log,
+     eventually surfacing as a redirect to `/lab/workspaces/...`).
+  3. **Current fix**, confirmed against a known-working sibling project
+     (`vyy_trees`, deployed on the exact same Hub) using the identical
+     pattern: every template link/form `action` is a plain relative
+     path with no leading `/` and no computed prefix at all (e.g.
+     `action="tools/upload"`, `href="users"`, `href="."` for the root).
+     This only resolves correctly if the *current* page's URL ends in
+     `/`, which isn't guaranteed by every proxy — so a tiny inline
+     `<script>` at the top of `<head>` in `base.html`/`login.html`
+     redirects client-side to add the trailing slash before anything
+     else loads (`location.replace(location.pathname + "/")`). No
+     server has to rewrite anything, no header has to be forwarded
+     correctly — it works identically standalone, under
+     `jupyter-server-proxy`, or under a real Hub's plain proxy.
 - **All four data files (`admins.json`, `config.json`, `users.json`,
   `session_secret`) share one base directory via `common/paths.py`'s
   `data_dir()`** (env var `MCP_TOOLS_DATA_DIR`, default
@@ -123,25 +143,21 @@ available to every user of the server — without restarting anything.
   deliberately separate FastAPI dependencies against the same
   `common/auth.py` store — a valid session cookie does **not** grant API
   access and vice versa.
-- **Redirect `Location` headers are deliberately *not* prefixed with
-  `X-Forwarded-Prefix`**, unlike HTML body links (which are, per the
-  `_request_base()` decision above). First version of the login redirects
-  built `Location: {base}/login`, matching how `{{ base }}/<route>` is
-  built in HTML forms — but that broke in the user's real deployment with
-  a doubled path (`.../proxy/8766/proxy/8766/login`), confirmed by
-  `jupyter-server-proxy`'s own log line
-  (`Rewrote Location header: /proxy/8766/login -> /proxy/8766/proxy/8766/login`)
-  in the real Jupyter server's log. Root cause: `jupyter-server-proxy`
-  already rewrites any absolute-path `Location` header on a redirect
-  response to prepend its own context path (see
-  `_rewrite_location_header` in its source, found while debugging the
-  earlier `_xsrf` issue) — it does this for *redirects* but has no way to
-  rewrite arbitrary paths inside an HTML response body, which is exactly
-  why the body-link prefixing is still needed. So: `RedirectResponse`
-  Location values in `admin_ui/main.py` (`/login` redirects, post-login
-  `/`, `/logout`) are plain, prefix-free paths; `jupyter-server-proxy`
-  adds the prefix for proxied deployments, and standalone deployments
-  have no prefix to add in the first place.
+- **Redirect `Location` headers are built by `_relative_redirect()`
+  (`admin_ui/main.py`), which climbs the right number of `../` based on
+  the *current* request path's depth** (`request.url.path`), rather
+  than assuming any particular depth or relying on a proxy to fix up
+  the header. E.g. redirecting-to-login from `POST /tools/upload`
+  (2 segments deep) emits `Location: ../login`; from the root `GET /`
+  it emits plain `login`. This is the redirect-side counterpart of the
+  relative-body-link decision above, for the same reason: no proxy in
+  this project's supported deployments (standalone,
+  `jupyter-server-proxy`, real JupyterHub) can be assumed to rewrite
+  `Location` headers, so the app has to emit an already-correct
+  relative reference itself. Verified directly against the running
+  admin UI with `curl` at multiple route depths (root, `/tools/upload`,
+  `/tools/{name}/delete`, `/config/shared-dir`), not just by reasoning
+  about RFC 3986.
 - **End users are tracked, not authenticated.** Per explicit decision:
   regular MCP users (as opposed to admins) get no account in
   `admins.json` and no password of their own. `common/users.py` is a
