@@ -127,11 +127,28 @@ def test_login_page_loads(anon_client):
     assert "Sign in" in r.text
 
 
+def test_login_page_itself_has_no_self_correct_script(anon_client):
+    # A normal GET /login visit must NOT get the trailing-slash
+    # self-correct script: "/login" already has a real segment of its
+    # own, so that script would wrongly try to turn it into "/login/",
+    # which 404s. Only the root-rendered-as-login fallback above needs
+    # it (test_login_page_loads's self_correct=True path).
+    r = anon_client.get("/login")
+    assert "location.replace" not in r.text
+
+
 def test_unauthenticated_html_routes_redirect_to_login(anon_client, tmp_path):
     # Redirect targets are relative to the request path's depth (see
     # _relative_redirect in admin_ui/main.py) — correct regardless of any
     # external mount prefix, since no proxy needs to rewrite them.
-    assert anon_client.get("/", follow_redirects=False).headers["location"] == "login"
+    # Root has no segment of its own to anchor a relative redirect on
+    # (see PLAN.md / main.py's _redirect_to_login), so it renders the
+    # login page directly (200, with its self-correct script) instead
+    # of issuing a redirect at all.
+    r = anon_client.get("/", follow_redirects=False)
+    assert r.status_code == 200
+    assert "Sign in" in r.text
+    assert "location.replace" in r.text
 
     data = _archive_bytes(tmp_path)
     r = anon_client.post(
@@ -170,7 +187,9 @@ def test_login_unknown_user_rejected(anon_client):
 def test_logout_clears_session(client):
     assert client.get("/").status_code == 200
     client.post("/logout")
-    assert client.get("/", follow_redirects=False).headers["location"] == "login"
+    r = client.get("/", follow_redirects=False)
+    assert r.status_code == 200
+    assert "Sign in" in r.text
 
 
 def test_api_requires_basic_auth_not_session_cookie(client):

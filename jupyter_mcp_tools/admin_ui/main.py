@@ -76,7 +76,21 @@ def _relative_redirect(request: Request, target: str) -> str:
 
 
 @app.exception_handler(NotAuthenticated)
-def _redirect_to_login(request: Request, exc: NotAuthenticated) -> RedirectResponse:
+def _redirect_to_login(request: Request, exc: NotAuthenticated):
+    if request.url.path in ("/", ""):
+        # The root path has no segment of its own to anchor a relative
+        # reference on: whether "login" resolves correctly depends on
+        # whether the browser's current URL happens to already end in
+        # "/" — which varies by how the user arrived (typed URL,
+        # bookmark, a Hub's own landing redirect, ...). Every *other*
+        # route has a real trailing segment ("users", "tools/upload",
+        # ...), so a relative "../login" unambiguously lands one level
+        # up from it regardless of trailing slash — this is the one
+        # case that doesn't. Serve the login page directly (status 200,
+        # no redirect at all) so its own trailing-slash self-correct
+        # script (see templates/base.html) can fix that up client-side
+        # before the form is ever shown or submitted.
+        return templates.TemplateResponse(request, "login.html", {"error": None, "self_correct": True})
     return RedirectResponse(_relative_redirect(request, "login"), status_code=303)
 
 

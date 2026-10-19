@@ -1,5 +1,21 @@
 {% extends "base.html" %}
 
+{% block self_correct_script %}
+<script>
+  // The app root has no path segment of its own, so whether relative
+  // links below resolve correctly depends on whether the browser's
+  // current URL happens to already end in "/" — which varies by how
+  // the user arrived (typed URL, bookmark, a proxy's own landing
+  // redirect, ...). Fix that up before anything on the page is clicked.
+  // See PLAN.md — this is deliberately NOT in base.html, since every
+  // other page here has a real trailing segment and doesn't need it
+  // (adding one would 404 them).
+  if (!location.pathname.endsWith("/")) {
+    location.replace(location.pathname + "/" + location.search + location.hash);
+  }
+</script>
+{% endblock %}
+
 {% block header_actions %}
 <button type="button" class="icon-btn" onclick="addressDialog.showModal()">
   <span>⚙</span><span class="path">{{ shared_dir }}</span>

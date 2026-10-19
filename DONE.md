@@ -461,3 +461,50 @@
   Full suite: 70/70 passing (one net fewer test than before — two old
   prefix-specific tests collapsed into one, since there's no longer a
   "with prefix" vs "without prefix" distinction to test separately).
+
+## 2026-10-19 (fixed the root-page login redirect still dropping a path segment)
+
+- User reported the *just-shipped* relative-links fix still broke on
+  prod: logging in redirected to `.../proxy/login` instead of
+  `.../proxy/8766/login` — a 404. Root cause: the app **root** path
+  (`/`) has no segment of its own, so whether a relative `"login"`
+  resolves correctly depends entirely on whether the browser's current
+  URL happens to already end in `/` at the moment the redirect fires —
+  and the previous fix's `_relative_redirect()` computed its `../`
+  count from the *backend's* view of the path (always `0` for root),
+  while the *browser* resolves the actual `Location` header against its
+  own (proxy-stripped, prefix-including) URL, which may or may not have
+  a trailing slash. Every *other* route (`/users`, `/tools/upload`, ...)
+  has a real trailing segment and was already correct — this was
+  specifically a root-only gap.
+- Fixed by not computing a redirect for the root case at all: when
+  `NotAuthenticated` fires on `request.url.path == "/"`,
+  `admin_ui/main.py` now renders `login.html` directly (status 200, no
+  `Location` header) instead of redirecting. Its self-correct script —
+  which operates purely client-side on `location.pathname`, which the
+  *browser* always sees correctly regardless of how much prefix an
+  upstream proxy already stripped before the request reached this
+  backend — fixes the trailing slash first, then the already-correctly
+  anchored login form submits normally.
+- Caught and fixed a second latent bug while implementing this: the
+  trailing-slash self-correct script cannot live on every page the way
+  it was initially (over-eagerly) ported in — `/login`, `/users`,
+  `/docs` all have a real trailing segment of their own, and that
+  script would wrongly try to turn e.g. `/login` into `/login/`, which
+  404s (no route registered with a trailing slash). Re-inspected
+  `vyy_trees` more carefully and confirmed it only puts the script on
+  `index.html` (its root), never on `tree.html` (its one other leaf
+  page) — had missed that distinction on the first port. Fixed by
+  moving the script into a Jinja block (`self_correct_script` in
+  `base.html`) that only `index.html` overrides, and making
+  `login.html`'s copy conditional on a `self_correct` flag set only by
+  the root's `NotAuthenticated` fallback — a normal `GET /login` visit
+  no longer gets it at all.
+- Updated `test_unauthenticated_html_routes_redirect_to_login` and
+  `test_logout_clears_session` for the new root behavior (200 + login
+  content, not a redirect), and added
+  `test_login_page_itself_has_no_self_correct_script` as a direct
+  regression test for the second bug. Verified against the real running
+  admin UI with `curl`: `GET /` unauthenticated now returns 200 with the
+  self-correct script present; `GET /login` returns 200 with it absent.
+  Full suite: 71/71 passing.

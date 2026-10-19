@@ -1,18 +1,13 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <script>
-    // Every link/form action on this page is relative (no leading "/"),
-    // so they resolve against the *current* URL regardless of what
-    // prefix a reverse proxy mounts us under (jupyter-server-proxy,
-    // JupyterHub's configurable-http-proxy, standalone, ...) — but that
-    // only works if the current URL ends in "/". Some proxies serve this
-    // page without ever redirecting to add one first. Self-correct
-    // before anything else on the page can be clicked. See PLAN.md.
-    if (!location.pathname.endsWith("/")) {
-      location.replace(location.pathname + "/" + location.search + location.hash);
-    }
-  </script>
+  {# Only the app root (index.html) overrides this — see that file for
+     why: it's the only page whose path has no segment of its own to
+     unambiguously anchor relative links on, so it's the only one that
+     needs the trailing-slash self-correct. Every other page here
+     (users.html, docs.html) has a real segment ("users", "docs") and
+     would 404 if this "corrected" it by adding a slash it doesn't want. #}
+  {% block self_correct_script %}{% endblock %}
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>MJApp (Lab edition){% block title_suffix %}{% endblock %}</title>

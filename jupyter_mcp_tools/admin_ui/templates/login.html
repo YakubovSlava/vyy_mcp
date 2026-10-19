@@ -1,13 +1,19 @@
 <!doctype html>
 <html lang="en">
 <head>
+  {% if self_correct %}
   <script>
-    // See templates/base.html for why: relative links only resolve
-    // correctly once the current URL ends in "/".
+    // Only set when this page is rendered as a stand-in for an
+    // unauthenticated request to the app *root* (see
+    // admin_ui/main.py's _redirect_to_login): the root path has no
+    // segment of its own to anchor relative links on, so it needs this
+    // fix-up. A normal GET /login visit does NOT set this — "/login"
+    // already has a real segment and adding a slash to it would 404.
     if (!location.pathname.endsWith("/")) {
       location.replace(location.pathname + "/" + location.search + location.hash);
     }
   </script>
+  {% endif %}
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>MJApp (Lab edition) — Sign in</title>

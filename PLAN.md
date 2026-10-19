@@ -94,12 +94,32 @@ available to every user of the server — without restarting anything.
      `action="tools/upload"`, `href="users"`, `href="."` for the root).
      This only resolves correctly if the *current* page's URL ends in
      `/`, which isn't guaranteed by every proxy — so a tiny inline
-     `<script>` at the top of `<head>` in `base.html`/`login.html`
-     redirects client-side to add the trailing slash before anything
-     else loads (`location.replace(location.pathname + "/")`). No
-     server has to rewrite anything, no header has to be forwarded
+     `<script>` redirects client-side to add the trailing slash before
+     anything else loads (`location.replace(location.pathname + "/")`).
+     No server has to rewrite anything, no header has to be forwarded
      correctly — it works identically standalone, under
      `jupyter-server-proxy`, or under a real Hub's plain proxy.
+  4. **One more depth-specific wrinkle this missed initially**: the
+     self-correct script only matters for the *app root* (`/`). Every
+     other route (`/users`, `/docs`, `/login`, `/tools/upload`, ...) has
+     a real trailing path segment of its own, so relative links off of
+     it resolve unambiguously regardless of whether that page's own URL
+     ends in `/` — but adding a trailing slash to one of *those* (which
+     a blindly-copied self-correct script would do) actually breaks it,
+     since this app has no route registered for e.g. `/login/` (404).
+     `vyy_trees` doesn't hit this because it only has one such leaf page
+     (`tree.html`) and deliberately doesn't put the script there (only
+     on `index.html`) — easy to miss copying that distinction over.
+     Here: the script lives in a Jinja block (`self_correct_script` in
+     `base.html`) that only `index.html` overrides; `login.html` only
+     includes it when rendered as the root's unauthenticated fallback
+     (`self_correct=True`, set only by `_redirect_to_login` when
+     `request.url.path` is literally `/` — every other
+     `NotAuthenticated` case keeps using the depth-computed
+     `_relative_redirect("login")`, which is correct for those since
+     they're always reached via relative navigation from an
+     already slash-corrected root, so their *own* backend-visible depth
+     matches the browser's).
 - **All four data files (`admins.json`, `config.json`, `users.json`,
   `session_secret`) share one base directory via `common/paths.py`'s
   `data_dir()`** (env var `MCP_TOOLS_DATA_DIR`, default
