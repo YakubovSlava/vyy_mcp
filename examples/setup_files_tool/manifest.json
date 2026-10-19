@@ -1,0 +1,13 @@
+{
+  "name": "make_setup_files",
+  "version": "1.0.0",
+  "description": "Returns a couple of setup files for the caller to download and run themselves — nothing is executed by the server.",
+  "entrypoint": "tool:make_setup_files",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "project_name": { "type": "string", "description": "Name to bake into the generated files" }
+    },
+    "required": ["project_name"]
+  }
+}

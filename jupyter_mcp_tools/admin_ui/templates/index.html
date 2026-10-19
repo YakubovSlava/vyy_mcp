@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block header_actions %}
+<button type="button" class="icon-btn" onclick="addressDialog.showModal()">
+  <span>⚙</span><span class="path">{{ shared_dir }}</span>
+</button>
+<button type="button" class="fab" title="Add skill" onclick="addSkillDialog.showModal()">+</button>
+{% endblock %}
+
+{% block content %}
+<p class="section-title">Skills</p>
+<div class="card">
+  {% if tools %}
+    {% for t in tools %}
+    <div class="skill-row">
+      <span class="skill-name">{{ t.name }}</span>
+      <span class="skill-version">v{{ t.version }}</span>
+      <span class="skill-desc">{{ t.description }}</span>
+      <form method="post" action="{{ base }}/tools/{{ t.name }}/delete" onsubmit="return confirm('Remove {{ t.name }} for all users?');">
+        <button type="submit" class="remove-btn">Remove</button>
+      </form>
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="empty-state">
+      <div class="glyph">＋</div>
+      <div>No skills installed yet.</div>
+      <button type="button" class="cta" onclick="addSkillDialog.showModal()">Add your first skill</button>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block dialogs %}
+<dialog id="addressDialog">
+  {% if remote %}
+  <div class="dialog-body">
+    <h3>Main host</h3>
+    <p>This is a child-admin relay: skills are installed on the main host below, not stored locally. To point this relay at a different main host, restart it with <code>scripts/run_child_admin.sh</code> and a different address.</p>
+    <label>
+      Address
+      <input type="text" value="{{ shared_dir }}" readonly />
+    </label>
+    <div class="dialog-actions">
+      <button type="button" class="btn ghost" onclick="addressDialog.close()">Close</button>
+    </div>
+  </div>
+  {% else %}
+  <form method="post" action="{{ base }}/config/shared-dir" class="dialog-body">
+    <h3>Shared tools directory</h3>
+    <p>Skills installed here are loaded by the MCP server and shared with every user of this server.</p>
+    <label>
+      Path
+      <input type="text" name="path" value="{{ shared_dir }}" required />
+    </label>
+    <label>
+      Bitbucket host-lookup script path
+      <input type="text" name="bitbucket_script_path" value="{{ bitbucket_script_path }}" placeholder="/opt/scripts/resolve_host.py" />
+    </label>
+    <p style="margin-top:-0.5rem">Used by <code>notebooks/connect_to_mcp.ipynb</code> — see the "Users" tab.</p>
+    <div class="dialog-actions">
+      <button type="button" class="btn ghost" onclick="addressDialog.close()">Cancel</button>
+      <button type="submit" class="btn primary">Save</button>
+    </div>
+  </form>
+  {% endif %}
+</dialog>
+
+<dialog id="addSkillDialog">
+  <form method="post" action="{{ base }}/tools/upload" enctype="multipart/form-data" class="dialog-body">
+    <h3>Add a skill</h3>
+    <p>Upload a <code>.zip</code> containing <code>manifest.json</code> and the entrypoint module it references.</p>
+    <label>
+      Archive
+      <input type="file" name="archive" accept=".zip" required />
+    </label>
+    <label class="check">
+      <input type="checkbox" name="overwrite" value="true" />
+      overwrite if it already exists
+    </label>
+    <div class="dialog-actions">
+      <button type="button" class="btn ghost" onclick="addSkillDialog.close()">Cancel</button>
+      <button type="submit" class="btn primary">Install &amp; share with all users</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}

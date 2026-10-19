@@ -1,0 +1,33 @@
+[project]
+name = "jupyter-mcp-tools"
+version = "0.1.0"
+description = "MCP server + admin UI for sharing archived tools with every user of a JupyterLab server"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "mcp>=1.6,<2",
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.29",
+  "jinja2>=3.1",
+  "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "httpx>=0.27",
+]
+
+[project.scripts]
+jupyter-mcp-tools-server = "jupyter_mcp_tools.mcp_server.server:main"
+jupyter-mcp-tools-admin-users = "jupyter_mcp_tools.admin_ui.manage_admins:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["jupyter_mcp_tools*"]
+
+[tool.pytest.ini_options]
+testpaths = ["jupyter_mcp_tools/tests"]

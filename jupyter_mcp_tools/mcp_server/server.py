@@ -1,0 +1,148 @@
+"""MCP server that exposes tools installed into the shared tools directory.
+
+Tools are installed out-of-band by the admin UI (see ``admin_ui``). This
+server polls the shared directory periodically and keeps the live MCP tool
+list in sync, so newly-shared tools become available to connected clients
+without restarting the server.
+"""
+from __future__ import annotations
+
+import argparse
+import asyncio
+import contextlib
+import logging
+from pathlib import Path
+from typing import AsyncIterator
+
+from mcp.server.fastmcp import FastMCP
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
+
+from ..common import registry, users
+from ..common.config import load_config
+from ..common.loader import load_entrypoint
+
+logger = logging.getLogger("jupyter_mcp_tools.server")
+
+SYNC_INTERVAL_SECONDS = 5.0
+
+
+def sync_tools(app: FastMCP, shared_dir: Path) -> None:
+    """Reconcile the live FastMCP tool registry with the shared directory."""
+    manifests = {m.name: m for m in registry.list_tools(shared_dir)}
+    existing_names = {t.name for t in app._tool_manager.list_tools()}
+
+    for name in existing_names - manifests.keys():
+        app.remove_tool(name)
+        logger.info("unregistered tool removed from shared dir: %s", name)
+
+    for name, manifest in manifests.items():
+        try:
+            entrypoint = load_entrypoint(shared_dir, manifest)
+        except Exception:
+            logger.exception("failed to load tool '%s', skipping", name)
+            continue
+
+        # Always re-register so edits to an already-installed tool (same
+        # name, updated code) take effect without a server restart.
+        if name in existing_names:
+            app.remove_tool(name)
+        app.add_tool(entrypoint, name=manifest.name, description=manifest.description)
+        logger.info("registered tool: %s (v%s)", manifest.name, manifest.version)
+
+
+class LogMCPUserMiddleware(BaseHTTPMiddleware):
+    """Records who's calling, for the admin UI's "Users" list.
+
+    Only meaningful over the streamable-http transport, where a client can
+    set a header; stdio transport has no notion of a remote caller
+    identity (it's a local subprocess per MCP client), so there's nothing
+    to log there — see PLAN.md.
+    """
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        username = request.headers.get("x-mcp-user")
+        if username:
+            try:
+                users.record_user(username)
+            except Exception:
+                logger.exception("failed to record MCP caller '%s'", username)
+        return await call_next(request)
+
+
+async def _tool_sync_loop(app: FastMCP, shared_dir: Path) -> None:
+    while True:
+        try:
+            sync_tools(app, shared_dir)
+        except Exception:
+            logger.exception("error while syncing tools from %s", shared_dir)
+        await asyncio.sleep(SYNC_INTERVAL_SECONDS)
+
+
+def build_app(shared_dir: Path) -> FastMCP:
+    @contextlib.asynccontextmanager
+    async def lifespan(app: FastMCP) -> AsyncIterator[dict]:
+        sync_tools(app, shared_dir)
+        task = asyncio.create_task(_tool_sync_loop(app, shared_dir))
+        try:
+            yield {}
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    return FastMCP(
+        "jupyter-mcp-tools",
+        instructions=(
+            "Tools in this server are installed by an administrator via the "
+            "jupyter-mcp-tools admin UI and are shared by every user of this "
+            "JupyterLab server."
+        ),
+        lifespan=lifespan,
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="jupyter-mcp-tools MCP server")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "sse", "streamable-http"],
+        default="stdio",
+        help="MCP transport to serve (default: stdio)",
+    )
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument(
+        "--shared-dir",
+        default=None,
+        help="Override the shared tools directory configured for the admin UI",
+    )
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO)
+
+    config = load_config()
+    shared_dir = Path(args.shared_dir) if args.shared_dir else config.shared_dir_path
+    shared_dir.mkdir(parents=True, exist_ok=True)
+    logger.info("serving tools from %s", shared_dir)
+
+    app = build_app(shared_dir)
+    if args.transport in ("sse", "streamable-http"):
+        app.settings.host = args.host
+        app.settings.port = args.port
+
+    if args.transport == "streamable-http":
+        # Bypass app.run() here so we can attach LogMCPUserMiddleware to the
+        # underlying Starlette app before serving it.
+        import uvicorn
+
+        starlette_app = app.streamable_http_app()
+        starlette_app.add_middleware(LogMCPUserMiddleware)
+        uvicorn.run(starlette_app, host=args.host, port=args.port, log_level="info")
+    else:
+        app.run(transport=args.transport)
+
+
+if __name__ == "__main__":
+    main()

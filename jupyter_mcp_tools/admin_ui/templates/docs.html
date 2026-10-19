@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title_suffix %} — Docs{% endblock %}
+
+{% block content %}
+<p class="section-title">Skill file structure</p>
+<div class="card">
+  <div class="doc">
+    <h2>What a skill looks like on disk</h2>
+    <p>Every skill is a folder under the shared tools directory (shown on the "⚙" dialog in the Skills tab):</p>
+    <div class="tree">{{ shared_dir }}/tools/
+  &lt;skill-name&gt;/
+    manifest.json
+    &lt;module&gt;.py      (the entrypoint module manifest.json points to)
+    ... any other files the module imports</div>
+
+    <h2>manifest.json</h2>
+    <pre><code>{
+  "name": "echo",
+  "version": "1.0.0",
+  "description": "Echoes the given text back",
+  "entrypoint": "tool:echo",
+  "parameters": { "type": "object", "properties": { "text": { "type": "string" } } }
+}</code></pre>
+    <ul>
+      <li><code>name</code> — unique slug (<code>[a-z0-9][a-z0-9_-]+</code>), also the MCP tool name.</li>
+      <li><code>entrypoint</code> — <code>"&lt;module&gt;:&lt;function&gt;"</code>; <code>&lt;module&gt;.py</code> must exist at the skill's root and define <code>&lt;function&gt;</code> as a top-level function.</li>
+      <li><code>parameters</code> — optional, documentation only. The real MCP input schema is inferred from the function's Python type hints.</li>
+    </ul>
+
+    <h2>The entrypoint module</h2>
+    <pre><code># tool.py
+def echo(text: str, shout: bool = False) -> str:
+    return text.upper() if shout else text</code></pre>
+
+    <h2>Two ways to install a skill</h2>
+    <ul>
+      <li><strong>Upload a .zip</strong> via "+" on the Skills tab — the zip's root must contain <code>manifest.json</code> and the entrypoint module, same layout as above.</li>
+      <li><strong>Drop the folder directly</strong> into <code>{{ shared_dir }}/tools/&lt;skill-name&gt;/</code> on disk — no upload needed, this works identically.</li>
+    </ul>
+
+    <h2>How fast changes show up</h2>
+    <ul>
+      <li>The Skills tab reads the directory fresh on every page load — changes are visible immediately on refresh.</li>
+      <li>The MCP server (what real agents/users call) re-scans the directory every 5 seconds and registers/unregisters tools automatically — no restart needed, whether the change came from the "+" upload or from editing files on disk directly.</li>
+    </ul>
+    <p>Validation on install is structural only (valid zip/folder, manifest fields, module parses, function exists) — code is not executed during validation, only when a client actually calls the tool.</p>
+
+    <h2>Returning multiple files for a human to run themselves</h2>
+    <p>A skill can return more than just a string — any JSON-serializable value gets sent straight back in the MCP response. Use this for a skill that should hand back files for the <em>calling human</em> to save and run under their own account, rather than a text answer. The server never runs anything here — same idea as the Bitbucket connection notebook.</p>
+    <pre><code>from jupyter_mcp_tools.common.skill_results import SkillFile, files_result
+
+def make_setup_files(project_name: str) -> dict:
+    return files_result(
+        f"Setup files for {project_name}. Save and run these yourself.",
+        [
+            SkillFile("setup.sh", "#!/bin/bash\necho hi\n", run_hint="bash setup.sh"),
+            SkillFile("config.yaml", f"project: {project_name}\n"),
+        ],
+    )</code></pre>
+    <p>Response shape: <code>{"message": ..., "files": [{"filename", "content", "run_hint"}, ...]}</code>. A full working example lives in <code>examples/setup_files_tool/</code>.</p>
+  </div>
+</div>
+{% endblock %}
