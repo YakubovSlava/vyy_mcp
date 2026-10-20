@@ -2,6 +2,7 @@ import subprocess
 
 import pytest
 
+from jupyter_mcp_tools.common import git_push
 from jupyter_mcp_tools.common.git_push import push_shared_dir
 
 
@@ -75,3 +76,37 @@ def test_push_shared_dir_push_failure_surfaces_detail(tmp_path):
     error = push_shared_dir(clone, username="x", password="y", commit_message="msg")
     assert error is not None
     assert "push" in error.lower()
+
+
+def test_push_overrides_credential_helper_and_askpass(tmp_path, monkeypatch):
+    # A local file:// remote never actually invokes credential.helper (no
+    # auth needed), so this can't be exercised end to end without a real
+    # HTTPS server — this instead asserts the actual subprocess argv for
+    # the push step, which is where the override matters: a system-wide
+    # gitconfig's own credential.helper takes priority over GIT_ASKPASS
+    # and can fail/prompt before our askpass is ever consulted (the
+    # reported "terminal prompts disabled" failure), so the push call
+    # must force both `-c credential.helper=` and `-c core.askpass=...`
+    # itself rather than relying on the env var alone.
+    _, clone = _init_repo_with_remote(tmp_path)
+    (clone / "tools").mkdir()
+    (clone / "tools" / "x.py").write_text("def f():\n    pass\n")
+
+    calls = []
+    real_run = subprocess.run
+
+    def spy(cmd, *args, **kwargs):
+        calls.append(cmd)
+        return real_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(git_push.subprocess, "run", spy)
+
+    error = push_shared_dir(clone, username="x", password="y", commit_message="msg")
+    assert error is None
+
+    push_call = next(c for c in calls if "push" in c)
+    assert "-c" in push_call and "credential.helper=" in push_call
+    assert any(arg.startswith("core.askpass=") for arg in push_call)
+
+    add_call = next(c for c in calls if "add" in c)
+    assert "-c" not in add_call  # only the credentialed (push) step needs the override

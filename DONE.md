@@ -979,3 +979,28 @@
   and `test_upload_pushes_to_git_when_configured` (full upload → install
   → push round trip against a real bare repo, asserting the commit
   actually lands there). Full suite: 106/106 passing.
+
+## 2026-10-20 (git push failing with "terminal prompts disabled" on a real host)
+
+- User reported the real push failing with `fatal: could not read
+  Username for 'https://...': terminal prompts disabled` — meaning
+  `GIT_ASKPASS` wasn't actually answering the prompt. Root cause: a
+  system-wide `gitconfig` with its own `credential.helper` already
+  configured takes priority over the `GIT_ASKPASS` env var and can
+  itself fail (or try to prompt) before our askpass script is ever
+  invoked at all — `GIT_TERMINAL_PROMPT=0` then blocks the interactive
+  fallback, producing exactly this error with no trace that our script
+  ran.
+- Fixed by forcing `-c credential.helper=` and `-c
+  core.askpass=<script>` directly on the `git push` command line (only
+  that step — `add`/`commit` need no credentials). `-c` options always
+  win over whatever's in a config file, unlike an env var a helper can
+  preempt.
+- Confirmed by hand that this genuinely can't be tested end-to-end with
+  a local `file://` remote: a credential helper that always fails still
+  lets a `file://` push through untouched, since no auth round-trip
+  happens for a local path at all. Added
+  `test_push_overrides_credential_helper_and_askpass` instead, which
+  mocks `subprocess.run` to assert the actual argv of the push call
+  (the `-c` flags present, and absent from the `add`/`commit` calls).
+  Full suite: 107/107 passing.

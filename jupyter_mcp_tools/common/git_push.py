@@ -44,9 +44,20 @@ def push_shared_dir(shared_dir: Path, *, username: str, password: str, commit_me
         "GIT_TERMINAL_PROMPT": "0",
     }
 
-    def run(*args: str) -> subprocess.CompletedProcess:
+    def run(*args: str, credentialed: bool = False) -> subprocess.CompletedProcess:
+        # `credentialed=True` (the push itself) explicitly overrides
+        # `credential.helper` to nothing and `core.askpass` to our script
+        # via `-c`, rather than relying on the GIT_ASKPASS env var alone —
+        # a system-wide gitconfig with its own credential.helper (git
+        # credential manager, `cache`, `store`, ...) takes priority over
+        # GIT_ASKPASS and can fail/prompt on its own before our askpass
+        # is ever consulted, which is exactly the "terminal prompts
+        # disabled" failure this is fixing. `-c` options win over any
+        # config file, so this is the one override guaranteed to apply
+        # regardless of what's already configured on the host.
+        cfg = ["-c", "credential.helper=", "-c", f"core.askpass={ASKPASS_SCRIPT}"] if credentialed else []
         return subprocess.run(
-            ["git", "-C", str(shared_dir), *args],
+            ["git", *cfg, "-C", str(shared_dir), *args],
             env=env,
             capture_output=True,
             text=True,
@@ -67,7 +78,7 @@ def push_shared_dir(shared_dir: Path, *, username: str, password: str, commit_me
                 logger.warning("git commit failed in %s: %s", shared_dir, detail)
                 return f"git commit: {detail}"
 
-        push = run("push")
+        push = run("push", credentialed=True)
         if push.returncode != 0:
             detail = (push.stderr or push.stdout).strip()
             logger.warning("git push failed in %s: %s", shared_dir, detail)

@@ -496,6 +496,26 @@ available to every user of the server — without restarting anything.
   persistent environment) and answers git's username/password prompts
   from that — visible only via `/proc/<pid>/environ` to the same user,
   not via a process listing to everyone.
+- **The push step also forces `-c credential.helper=` and `-c
+  core.askpass=<script>` directly on the `git push` command line, not
+  just `GIT_ASKPASS` in the environment.** Found from a real production
+  report: `GIT_ASKPASS` alone wasn't enough — a system-wide `gitconfig`
+  with its own `credential.helper` already configured (credential
+  manager, `cache`, `store`, ...) takes priority over `GIT_ASKPASS` and
+  can itself fail or attempt to prompt before our askpass script is
+  ever consulted, surfacing as `fatal: could not read Username ...:
+  terminal prompts disabled` — the exact symptom reported, with no
+  indication our askpass had even run. `-c` options on the command line
+  always win over anything in a config file, so overriding both there
+  (only on the push invocation — `add`/`commit` need no credentials at
+  all) is the one mechanism guaranteed to apply regardless of whatever's
+  already configured on the host. `test_push_overrides_credential_helper_and_askpass`
+  asserts this at the subprocess-argv level (mocking `subprocess.run` to
+  inspect the actual command), since a local `file://` test remote never
+  invokes a credential helper in the first place (confirmed by hand: a
+  helper that always fails still lets a `file://` push through
+  untouched) — there's no way to exercise the real failure end-to-end
+  without a live HTTPS git server.
 - **The git password is configured only by the main admin, in the same
   "⚙" settings dialog as the shared directory**, per explicit request
   ("Логин и пароль... будут редактироваться только у главного админа в
