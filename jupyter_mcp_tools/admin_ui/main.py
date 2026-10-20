@@ -47,6 +47,13 @@ MAIN_HOST = os.environ.get("MCP_TOOLS_MAIN_HOST", "").rstrip("/")
 CHILD_USER = os.environ.get("MCP_TOOLS_ADMIN_USER", "")
 CHILD_PASSWORD = os.environ.get("MCP_TOOLS_ADMIN_PASSWORD", "")
 INSECURE_TLS = os.environ.get("MCP_TOOLS_INSECURE_TLS") == "1"
+# Locks down every mutating skill action (install/overwrite, delete,
+# edit-description) on *this* process — set at startup, not toggleable
+# from the UI itself, per explicit request. Checked at the top of every
+# mutating route (HTML and JSON API alike), so it applies the same way
+# whether this is the main host or a child relay forwarding to one.
+READ_ONLY = os.environ.get("MCP_TOOLS_READ_ONLY") == "1"
+READ_ONLY_MESSAGE = "Админка запущена в режиме «только просмотр» — изменения навыков отключены."
 
 # Starlette's own `redirect_slashes` (on by default) would otherwise 307
 # any request whose path doesn't exactly match a route's trailing slash
@@ -247,6 +254,7 @@ def _render(request: Request, **extra):
         "index.html",
         {
             "remote": bool(MAIN_HOST),
+            "read_only": READ_ONLY,
             "active_page": "skills",
             "shared_dir": address_label,
             "bitbucket_base_url": bitbucket_base_url,
@@ -404,6 +412,9 @@ async def upload_tool(
     description: str = Form(""),
     _admin: str | None = Depends(require_admin_page),
 ):
+    if READ_ONLY:
+        return _redirect_to_root(request, error=READ_ONLY_MESSAGE)
+
     with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
         tmp.write(await archive.read())
         tmp_path = Path(tmp.name)
@@ -455,6 +466,8 @@ async def upload_tool(
 
 @app.post("/tools/{name}/delete")
 def delete_tool(request: Request, name: str, _admin: str | None = Depends(require_admin_page)):
+    if READ_ONLY:
+        return _redirect_to_root(request, error=READ_ONLY_MESSAGE)
     if MAIN_HOST:
         try:
             resp = curl_client.post(
@@ -502,6 +515,8 @@ def edit_doc_skill_description(
     only skill metadata that's ever edited without re-uploading the whole
     archive. Code skills have no equivalent: their description is the
     function's own docstring, edited by editing the .py file directly."""
+    if READ_ONLY:
+        return _redirect_to_root(request, error=READ_ONLY_MESSAGE)
     if MAIN_HOST:
         try:
             resp = curl_client.post(
@@ -567,6 +582,9 @@ async def api_upload_tool(
     description: str = Form(""),
     _admin: str | None = Depends(require_admin_api),
 ):
+    if READ_ONLY:
+        return JSONResponse(status_code=403, content={"error": READ_ONLY_MESSAGE})
+
     config = load_config()
     shared_dir = config.shared_dir_path
 
@@ -591,6 +609,9 @@ async def api_upload_tool(
 
 @app.post("/api/tools/{name}/delete")
 def api_delete_tool(name: str, _admin: str | None = Depends(require_admin_api)):
+    if READ_ONLY:
+        return JSONResponse(status_code=403, content={"error": READ_ONLY_MESSAGE})
+
     config = load_config()
     shared_dir = config.shared_dir_path
     try:
@@ -605,6 +626,9 @@ def api_delete_tool(name: str, _admin: str | None = Depends(require_admin_api)):
 def api_edit_doc_skill_description(
     name: str, description: str = Form(...), _admin: str | None = Depends(require_admin_api)
 ):
+    if READ_ONLY:
+        return JSONResponse(status_code=403, content={"error": READ_ONLY_MESSAGE})
+
     config = load_config()
     shared_dir = config.shared_dir_path
     try:

@@ -390,3 +390,63 @@ def test_delete_pushes_to_git_when_configured(client, tmp_path):
         ["git", "log", "--oneline", "-1"], cwd=bare, capture_output=True, text=True, check=True
     ).stdout
     assert "Remove skill" in log
+
+
+@pytest.fixture
+def read_only_client(tmp_path, monkeypatch):
+    # Separate app instance with MCP_TOOLS_READ_ONLY=1, mirroring
+    # app_module/client above but reloaded with the extra env var set
+    # before import, since READ_ONLY is read once at module level.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("MCP_TOOLS_CONFIG_PATH", str(tmp_path / "config.json"))
+    monkeypatch.setenv("MCP_TOOLS_ADMINS_PATH", str(tmp_path / "admins.json"))
+    monkeypatch.setenv("MCP_TOOLS_SESSION_SECRET_PATH", str(tmp_path / "session_secret"))
+    monkeypatch.delenv("MCP_TOOLS_MAIN_HOST", raising=False)
+    monkeypatch.setenv("MCP_TOOLS_READ_ONLY", "1")
+    auth.add_admin(ADMIN_USER, ADMIN_PASSWORD)
+
+    from jupyter_mcp_tools.admin_ui import main as admin_main
+
+    importlib.reload(admin_main)
+    test_client = TestClient(admin_main.app)
+    test_client.post("/login", data={"username": ADMIN_USER, "password": ADMIN_PASSWORD})
+    return test_client
+
+
+def test_read_only_blocks_upload(read_only_client, tmp_path):
+    data = _archive_bytes(tmp_path)
+    r = read_only_client.post("/tools/upload", files={"archive": ("greet.zip", data, "application/zip")})
+    assert "только просмотр" in r.text.lower()
+
+    r = read_only_client.get("/api/tools", auth=(ADMIN_USER, ADMIN_PASSWORD))
+    assert r.json() == []  # nothing actually got installed
+
+
+def test_read_only_blocks_delete(read_only_client, tmp_path):
+    r = read_only_client.post("/tools/does-not-exist/delete")
+    assert "только просмотр" in r.text.lower()
+
+
+def test_read_only_blocks_edit_description(read_only_client):
+    r = read_only_client.post("/tools/does-not-exist/edit-description", data={"description": "x"})
+    assert "только просмотр" in r.text.lower()
+
+
+def test_read_only_hides_mutating_buttons(read_only_client):
+    r = read_only_client.get("/")
+    assert "Только просмотр" in r.text
+    assert 'onclick="addSkillDialog.showModal()"' not in r.text
+    assert "Удалить" not in r.text
+
+
+def test_read_only_json_api_returns_403(read_only_client, tmp_path):
+    data = _archive_bytes(tmp_path)
+    r = read_only_client.post(
+        "/api/tools",
+        auth=(ADMIN_USER, ADMIN_PASSWORD),
+        files={"archive": ("greet.zip", data, "application/zip")},
+    )
+    assert r.status_code == 403
+
+    r = read_only_client.post("/api/tools/does-not-exist/delete", auth=(ADMIN_USER, ADMIN_PASSWORD))
+    assert r.status_code == 403

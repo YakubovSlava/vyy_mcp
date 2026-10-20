@@ -79,6 +79,23 @@ archives aren't committed to the repo, build one yourself:
 python examples/build_archive.py echo_tool
 ```
 
+### Read-only mode
+
+Set `MCP_TOOLS_READ_ONLY=1` at startup to disable every mutating skill
+action — install/overwrite, delete, and doc-skill description editing —
+on that process, leaving only viewing the Skills list:
+
+```bash
+MCP_TOOLS_READ_ONLY=1 uvicorn jupyter_mcp_tools.admin_ui.main:app --host 0.0.0.0 --port 8766
+```
+
+It's a startup flag, not something toggled from the UI. The corresponding
+buttons ("+", "Удалить", "Редактировать") are hidden from the page
+entirely, and every mutating route (HTML and the JSON `/api/...` surface
+a child relay's `curl` calls hit) rejects the action with a clear message
+even if called directly. The shared-directory/git-push settings dialog
+is unaffected — this only locks down skills themselves, not app config.
+
 ## Open the admin UI from JupyterLab
 
 No extra package or entry point is needed on our side —

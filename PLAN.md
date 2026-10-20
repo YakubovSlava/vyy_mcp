@@ -564,6 +564,29 @@ available to every user of the server — without restarting anything.
   /tools/{name}/edit-description`) + JSON API (`/api/tools/{name}/edit-description`)
   + child-relay-forwarding pattern every other mutating action already
   uses, triggering the same git push on success.
+- **`MCP_TOOLS_READ_ONLY=1` is a startup-only env var, not a UI toggle,
+  per explicit request** ("при запуске ... флаг"). Matches this
+  project's existing convention for process-level configuration
+  (`MCP_TOOLS_MAIN_HOST`, `MCP_TOOLS_INSECURE_TLS`, ...) rather than
+  adding a new persisted `AppConfig` field — unlike the git-push
+  credentials (meant to be changed without restarting), this is a
+  deployment-time lockdown decision, closer to "which mode is this
+  process running in" than "what does this process currently have
+  configured." Scoped narrowly per explicit confirmation (asked via
+  AskUserQuestion: should delete also be blocked — yes): it disables
+  install/overwrite, delete, *and* description editing, leaving only viewing the
+  Skills list; it does **not** touch `/config/shared-dir` (shared
+  directory / git-push credentials), since that's app configuration,
+  not a skill mutation, and the user's framing was specifically about
+  protecting skills. Checked at the very top of all six mutating routes
+  (3 HTML + 3 JSON API) — the JSON API check matters just as much as
+  the HTML one, since that's what a child relay's `curl` call actually
+  hits on the main host; a read-only *main* host blocks relay-forwarded
+  mutations automatically without the relay needing to know anything
+  about the flag. The buttons that would trigger these actions
+  ("+", "Удалить", "Редактировать") are also hidden from the rendered
+  page in this mode, not just rejected server-side, so the UI doesn't
+  invite an action it's going to refuse anyway.
 
 ## Shared tools directory layout
 

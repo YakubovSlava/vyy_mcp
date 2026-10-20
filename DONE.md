@@ -1078,3 +1078,37 @@
   `test_delete_pushes_to_git_when_configured` (full delete → push round
   trip against a real bare repo, mirroring the existing upload-pushes
   test). Full suite: 117/117 passing.
+
+## 2026-10-20 (MCP_TOOLS_READ_ONLY startup flag)
+
+- Per explicit request ("при запуске... флаг, который не даст
+  возможности добавления и редактирования"), with a follow-up decision
+  (asked via AskUserQuestion: should "Удалить" also be blocked — yes),
+  added `MCP_TOOLS_READ_ONLY=1`: a startup-only env var (matching the
+  existing `MCP_TOOLS_MAIN_HOST`/`MCP_TOOLS_INSECURE_TLS` convention,
+  not a new persisted `AppConfig` field, since this is a deployment-mode
+  decision rather than something changed without restarting) that
+  disables install/overwrite, delete, and description editing, leaving
+  only viewing the Skills list.
+- Checked at the top of all six mutating routes: the three HTML ones
+  (`upload_tool`, `delete_tool`, `edit_doc_skill_description`, each
+  redirecting to the root with `READ_ONLY_MESSAGE` as the error) and the
+  three JSON API ones a child relay's `curl` call hits
+  (`api_upload_tool`, `api_delete_tool`, `api_edit_doc_skill_description`,
+  each returning `403`). Checking the JSON API matters just as much as
+  the HTML side: a read-only *main* host blocks relay-forwarded
+  mutations automatically, with no changes needed on the relay's side at
+  all.
+- `templates/index.html`: the "+" add-skill button, "Удалить", and
+  "Редактировать" are all hidden from the rendered page in this mode
+  (via a new `read_only` context flag threaded through `_render()`), not
+  just rejected server-side — plus a banner at the top of the Skills
+  page explicitly stating the admin UI is read-only. `/config/shared-dir`
+  (shared directory path / git-push credentials) is deliberately
+  unaffected — the request was specifically about protecting skills, not
+  app configuration.
+- Tests: `test_admin_api.py` gained a `read_only_client` fixture
+  (reloads `admin_ui.main` with `MCP_TOOLS_READ_ONLY=1` set before
+  import, since the flag is read once at module level) and 5 new tests
+  covering each blocked HTML action, the hidden buttons, and the JSON
+  API's `403`s. Full suite: 122/122 passing.

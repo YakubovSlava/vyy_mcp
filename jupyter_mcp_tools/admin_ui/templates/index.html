@@ -30,10 +30,15 @@
 <button type="button" class="icon-btn" onclick="addressDialog.showModal()">
   <span>⚙</span><span class="path">{{ shared_dir }}</span>
 </button>
+{% if not read_only %}
 <button type="button" class="fab" title="Добавить навык" onclick="addSkillDialog.showModal()">+</button>
+{% endif %}
 {% endblock %}
 
 {% block content %}
+{% if read_only %}
+<div class="banner err" style="margin-bottom:1.25rem;">Только просмотр: эта админка запущена с <code>MCP_TOOLS_READ_ONLY=1</code> — установка, удаление и редактирование навыков отключены.</div>
+{% endif %}
 <p class="section-title">Навыки</p>
 <div class="card">
   {% if tools %}
@@ -43,19 +48,23 @@
       <span class="skill-kind kind-{{ t.kind }}">{{ "SKILL.md" if t.kind == "doc" else "код" }}</span>
       <span class="skill-version">v{{ t.version }}</span>
       <span class="skill-desc">{{ t.description }}</span>
+      {% if not read_only %}
       {% if t.kind == "doc" %}
       <button type="button" class="edit-btn" onclick="openEditDescription('{{ t.name }}', {{ t.description | tojson }})">Редактировать</button>
       {% endif %}
       <form method="post" action="tools/{{ t.name }}/delete" onsubmit="return confirm('Удалить {{ t.name }} для всех пользователей?');">
         <button type="submit" class="remove-btn">Удалить</button>
       </form>
+      {% endif %}
     </div>
     {% endfor %}
   {% else %}
     <div class="empty-state">
       <div class="glyph">＋</div>
       <div>Навыки пока не установлены.</div>
+      {% if not read_only %}
       <button type="button" class="cta" onclick="addSkillDialog.showModal()">Добавить первый навык</button>
+      {% endif %}
     </div>
   {% endif %}
 </div>
