@@ -120,6 +120,29 @@ def test_form_actions_are_relative(client):
     assert 'action="config/shared-dir"' in r.text
 
 
+def test_trailing_slash_never_triggers_a_redirect(client, tmp_path):
+    # Starlette's own `redirect_slashes` issues an *absolute* Location
+    # (scheme+host+path) with zero proxy-prefix awareness — observed in
+    # production as a proxied upload getting redirected straight to the
+    # domain root, dropping the whole /user/<name>/proxy/<port> prefix.
+    # It must be disabled, and StripTrailingSlashMiddleware must handle
+    # the slash itself, so a proxy that happens to forward one never
+    # produces any redirect at all (200, not 307) — see main.py.
+    data = _archive_bytes(tmp_path)
+    r = client.post(
+        "/tools/upload/",
+        files={"archive": ("greet.zip", data, "application/zip")},
+        follow_redirects=False,
+    )
+    assert r.status_code == 200
+
+    r = client.get("/users/", follow_redirects=False)
+    assert r.status_code == 200
+
+    r = client.get("/docs/", follow_redirects=False)
+    assert r.status_code == 200
+
+
 def test_login_page_loads(anon_client):
     r = anon_client.get("/login")
     assert r.status_code == 200

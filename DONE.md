@@ -743,3 +743,36 @@
   contains the real `requests.get` call and REST path shape, and that
   the connect cell prints both the `claude` and `opencode` commands.
   Full suite: 96/96 passing.
+
+## 2026-10-20 (fixed uploads redirecting straight to the domain root on prod)
+
+- User reported "Установить и поделиться со всеми" redirecting to
+  `addr/tools/upload` — a 404, with the whole `/user/<name>/proxy/<port>`
+  prefix missing. Root-caused by reproducing it locally rather than
+  guessing: `POST /tools/upload/` (note the trailing slash) triggers
+  Starlette's own built-in `redirect_slashes` behavior, which 307s to
+  `http://testserver/tools/upload` in tests — an **absolute** Location
+  header (scheme+host+path), built with zero awareness of any proxy
+  prefix. This is a completely different hole from the one
+  `_relative_redirect()` already closes (see PLAN.md): that function
+  only covers redirects *this app* emits; Starlette's automatic
+  trailing-slash redirect fires before our own routing code ever runs,
+  so it was never going through that discipline at all. An earlier,
+  separately-reported `/hub/tools/upload` 404 from the same user turned
+  out to be a red herring from a stale admin UI process still running
+  pre-fix code in memory (confirmed nothing in this codebase ever
+  constructs an `/hub/...` path) — restarting it was enough to rule that
+  one out, but it didn't explain the reproducible `addr/tools/upload`
+  case, which needed this actual fix.
+- Fixed by `FastAPI(..., redirect_slashes=False)` in `admin_ui/main.py`,
+  plus a new `StripTrailingSlashMiddleware` that strips a trailing slash
+  from `scope["path"]` before routing — so whichever proxy in the chain
+  is adding one (unconfirmed which, since this project doesn't have
+  direct access to the production Hub to inspect) hits the route
+  directly, with no redirect of any kind involved.
+- Added `test_trailing_slash_never_triggers_a_redirect` reproducing the
+  exact request shapes from the report (`POST /tools/upload/`, `GET
+  /users/`, `GET /docs/`) and asserting 200. Verified directly against
+  the real running admin UI with `curl` too (trailing-slash requests now
+  get our own relative `../login`/`login` redirects when unauthenticated,
+  never an absolute `http://...` one). Full suite: 97/97 passing.

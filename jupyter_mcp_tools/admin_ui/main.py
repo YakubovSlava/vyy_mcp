@@ -47,8 +47,46 @@ CHILD_USER = os.environ.get("MCP_TOOLS_ADMIN_USER", "")
 CHILD_PASSWORD = os.environ.get("MCP_TOOLS_ADMIN_PASSWORD", "")
 INSECURE_TLS = os.environ.get("MCP_TOOLS_INSECURE_TLS") == "1"
 
-app = FastAPI(title="MJApp (Lab edition)", docs_url=None, redoc_url=None, openapi_url=None)
+# Starlette's own `redirect_slashes` (on by default) would otherwise 307
+# any request whose path doesn't exactly match a route's trailing slash
+# to `request.url.replace(path=...)` — an *absolute* Location
+# (scheme+host+path) built with zero awareness of whatever proxy prefix
+# fronts us (jupyter-server-proxy, a real Hub, ...). That's exactly the
+# kind of proxy-unaware redirect this app has had to avoid everywhere
+# else (see _relative_redirect below) — observed in production as a
+# proxied `POST .../tools/upload/` getting redirected straight to
+# `<domain-root>/tools/upload`, dropping the whole `/user/<name>/
+# proxy/<port>` prefix. Disabling it here and normalizing the slash
+# ourselves (see StripTrailingSlashMiddleware) means no redirect is ever
+# needed for this at all.
+app = FastAPI(
+    title="MJApp (Lab edition)",
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+    redirect_slashes=False,
+)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+
+class StripTrailingSlashMiddleware:
+    """Normalizes away a trailing slash on any non-root path before
+    routing, so a proxy that happens to forward one never triggers
+    Starlette's disabled-but-still-worth-avoiding redirect behavior
+    (see the comment on `redirect_slashes` above) or a plain 404."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            path = scope["path"]
+            if len(path) > 1 and path.endswith("/"):
+                scope = {**scope, "path": path.rstrip("/")}
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(StripTrailingSlashMiddleware)
 
 _basic_security = HTTPBasic(auto_error=False)
 

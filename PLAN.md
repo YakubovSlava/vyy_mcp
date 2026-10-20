@@ -179,6 +179,26 @@ available to every user of the server — without restarting anything.
   admin UI with `curl` at multiple route depths (root, `/tools/upload`,
   `/tools/{name}/delete`, `/config/shared-dir`), not just by reasoning
   about RFC 3986.
+- **Starlette's own `redirect_slashes` had to be disabled** — it was a
+  completely separate hole from the one `_relative_redirect()` above
+  closes, discovered from a real production report (a proxied upload
+  redirecting straight to the domain root, dropping the whole
+  `/user/<name>/proxy/<port>` prefix). Reproduced locally: `POST
+  /tools/upload/` (trailing slash) 307-redirects, by Starlette's own
+  built-in behavior, to `http://testserver/tools/upload` — an
+  **absolute** Location (scheme+host+path) built from
+  `request.url.replace(...)`, with zero awareness of any proxy prefix.
+  Every one of our own redirects already goes through
+  `_relative_redirect()`, but this one is emitted by the framework
+  itself before our routing even runs, so that discipline never applied
+  to it. Fixed by `FastAPI(..., redirect_slashes=False)` plus a small
+  `StripTrailingSlashMiddleware` that strips a trailing slash from
+  `scope["path"]` before routing — so a proxy that happens to forward
+  one (we don't know which of theirs does, or why) hits the route
+  directly instead of either 404ing or triggering any redirect at all.
+  `test_trailing_slash_never_triggers_a_redirect` reproduces the exact
+  shape of the original report (`POST /tools/upload/`, `GET /users/`,
+  `GET /docs/`) and asserts 200, not 307.
 - **End users are tracked, not authenticated.** Per explicit decision:
   regular MCP users (as opposed to admins) get no account in
   `admins.json` and no password of their own. `common/users.py` is a
