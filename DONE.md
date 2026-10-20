@@ -804,3 +804,41 @@
   `test_delete_missing_tool_404` (renamed
   `test_delete_missing_tool_shows_friendly_error`) for the new 200 +
   banner behavior. Full suite: 97/97 passing.
+
+## 2026-10-20 (the real cause of the "redirects to Method Not Allowed" reports)
+
+- Root-caused the exact bug behind every "redirects to a 405/404 page"
+  report from this user across this whole debugging thread (upload,
+  delete — all of it), by getting a full Network-tab capture from their
+  real browser: clicking "Удалить" → confirming → the address bar
+  landed on `.../tools/echo/delete/` (note the trailing slash) showing
+  `{"detail":"Method Not Allowed"}`, with **no visible redirect** before
+  it — just one `GET` request, `Referer: .../tools/echo/delete` (no
+  slash).
+- That `Referer` was the tell: `_render()` in `admin_ui/main.py`
+  (shared by `/`, `POST /tools/upload`, `POST /tools/{name}/delete`,
+  `POST /config/shared-dir`) always renders `templates/index.html`
+  directly, by design, to avoid a redirect that would escape the proxy
+  prefix (see the 2026-10-19 "page split" entry). But `index.html`'s
+  `self_correct_script` block — the trailing-slash self-correct script,
+  meant only for an actual `GET /` — was rendered **unconditionally**
+  whenever that template was used, with no awareness that `_render()`
+  now also answers POSTs on routes whose own URL (correctly) never ends
+  in `/`. On those responses, the script saw `location.pathname` not
+  ending in `/` and "corrected" it by issuing its own client-side `GET`
+  navigation to that same path + `/` — which 405s, since those are
+  POST-only routes. This never showed up as a server-side redirect in
+  Network because it's a JS-initiated navigation, not an HTTP 3xx —
+  which is exactly why the two previous debugging rounds on this same
+  class of symptom (the Starlette `redirect_slashes` fix, and the bare
+  404-on-delete fix) didn't catch it: neither one was the actual script
+  producing this particular report.
+- Fixed by gating the script on a new `self_correct` context flag,
+  `_render()` passes in as `request.url.path in ("/", "")` — true only
+  for the real root page, false for every POST handler that reuses the
+  same template. Mirrors the pattern `login.html` already used for its
+  own analogous root-vs-not self-correct gating.
+- Added `test_self_correct_script_only_on_actual_root`, directly
+  reproducing the reported sequence (GET / has the script; POST
+  `/tools/{name}/delete`, `/tools/upload`, `/config/shared-dir` do not).
+  Full suite: 98/98 passing.

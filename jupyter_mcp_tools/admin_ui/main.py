@@ -209,6 +209,16 @@ def _render(request: Request, **extra):
             "tools": tools,
             "message": message,
             "error": error,
+            # index.html's trailing-slash self-correct script must only
+            # run when the browser's address bar is actually the app
+            # root: this same template/_render() is also used to answer
+            # POST /tools/upload, /tools/{name}/delete, /config/shared-dir
+            # directly (no redirect, to stay under the proxy prefix — see
+            # PLAN.md), which leaves the address bar on *that* POST's own
+            # URL, which never ends in "/". Without this guard the script
+            # "corrected" that by re-navigating (GET) to the same path
+            # plus "/", which 405s since those are POST-only routes.
+            "self_correct": request.url.path in ("/", ""),
         },
     )
 

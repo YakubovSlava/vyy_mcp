@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 
 {% block self_correct_script %}
+{% if self_correct %}
 <script>
   // The app root has no path segment of its own, so whether relative
   // links below resolve correctly depends on whether the browser's
@@ -10,10 +11,19 @@
   // See PLAN.md — this is deliberately NOT in base.html, since every
   // other page here has a real trailing segment and doesn't need it
   // (adding one would 404 them).
+  //
+  // Also deliberately gated on `self_correct` (only true for an actual
+  // GET / — see _render() in main.py): this same index.html is reused
+  // to answer /tools/upload, /tools/{name}/delete, /config/shared-dir
+  // POSTs directly without a redirect, which leaves the address bar on
+  // *that* POST's own URL — never ending in "/" — so without this
+  // guard the script wrongly "corrected" it with a GET to that path
+  // plus "/", 405ing against those POST-only routes.
   if (!location.pathname.endsWith("/")) {
     location.replace(location.pathname + "/" + location.search + location.hash);
   }
 </script>
+{% endif %}
 {% endblock %}
 
 {% block header_actions %}

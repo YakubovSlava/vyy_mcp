@@ -149,6 +149,28 @@ def test_trailing_slash_never_triggers_a_redirect(client, tmp_path):
     assert r.status_code == 200
 
 
+def test_self_correct_script_only_on_actual_root(client, tmp_path):
+    # index.html's trailing-slash self-correct script is also served as
+    # the direct (non-redirected) response body for every other mutating
+    # route's POST, which leaves the address bar on *that* route's own
+    # URL — never ending in "/". If the script isn't gated to only the
+    # real "GET /" case, it wrongly re-navigates (GET) to that same path
+    # plus "/", which 405s since those routes are POST-only. Reported in
+    # production as a delete/upload/save action redirecting to a
+    # "Method Not Allowed" page.
+    assert "location.replace" in client.get("/").text
+
+    r = client.post("/tools/does-not-exist/delete")
+    assert "location.replace" not in r.text
+
+    data = _archive_bytes(tmp_path)
+    r = client.post("/tools/upload", files={"archive": ("greet.zip", data, "application/zip")})
+    assert "location.replace" not in r.text
+
+    r = client.post("/config/shared-dir", data={"path": str(tmp_path)})
+    assert "location.replace" not in r.text
+
+
 def test_login_page_loads(anon_client):
     r = anon_client.get("/login")
     assert r.status_code == 200
