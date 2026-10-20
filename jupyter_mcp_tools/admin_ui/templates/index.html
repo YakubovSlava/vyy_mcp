@@ -50,7 +50,7 @@
       <span class="skill-desc">{{ t.description }}</span>
       {% if not read_only %}
       {% if t.kind == "doc" %}
-      <button type="button" class="edit-btn" onclick="openEditDescription('{{ t.name }}', {{ t.description | tojson }})">Редактировать</button>
+      <button type="button" class="edit-btn" data-name="{{ t.name }}" data-description="{{ t.description }}" onclick="openEditDescription(this)">Редактировать</button>
       {% endif %}
       <form method="post" action="tools/{{ t.name }}/delete" onsubmit="return confirm('Удалить {{ t.name }} для всех пользователей?');">
         <button type="submit" class="remove-btn">Удалить</button>
@@ -158,7 +158,9 @@
 </dialog>
 
 <script>
-  function openEditDescription(name, description) {
+  function openEditDescription(btn) {
+    const name = btn.dataset.name;
+    const description = btn.dataset.description;
     document.getElementById("editDescriptionForm").action = "tools/" + encodeURIComponent(name) + "/edit-description";
     document.getElementById("editSkillName").textContent = name;
     document.getElementById("editDescriptionInput").value = description;

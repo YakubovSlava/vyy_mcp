@@ -348,6 +348,28 @@ def test_edit_doc_skill_description(client, tmp_path):
     assert tools[0].description == "Updated description."
 
 
+def test_edit_button_data_attributes_survive_quotes_in_description(client, tmp_path):
+    # Regression test: the edit button used to build its onclick handler
+    # via `{{ description | tojson }}` interpolated directly into a
+    # double-quoted HTML attribute -- tojson doesn't HTML-escape its
+    # output, so a description containing a literal '"' broke the
+    # attribute (and the handler) outright. Using data-* attributes
+    # (HTML-escaped by Jinja like any other interpolated value) instead
+    # must keep the button's onclick handler intact and the quotes
+    # recoverable via .dataset in JS regardless of what's in the text.
+    data = _doc_skill_archive_bytes(tmp_path)
+    client.post(
+        "/tools/upload",
+        files={"archive": ("doc.zip", data, "application/zip")},
+        data={"name": "doc-skill", "description": 'It\'s a "tricky" description'},
+    )
+
+    r = client.get("/")
+    assert 'onclick="openEditDescription(this)"' in r.text
+    assert "data-name=\"doc-skill\"" in r.text
+    assert "&#34;tricky&#34;" in r.text or "&#x27;" in r.text or "&#39;" in r.text
+
+
 def test_edit_description_rejects_code_skill(client, tmp_path):
     data = _archive_bytes(tmp_path)
     client.post("/tools/upload", files={"archive": ("greet.zip", data, "application/zip")})

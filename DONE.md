@@ -1112,3 +1112,28 @@
   import, since the flag is read once at module level) and 5 new tests
   covering each blocked HTML action, the hidden buttons, and the JSON
   API's `403`s. Full suite: 122/122 passing.
+
+## 2026-10-20 (fixed "Редактировать" button doing nothing)
+
+- User reported clicking "Редактировать" did nothing. Root cause: the
+  button's `onclick` was built as
+  `onclick="openEditDescription('{{ t.name }}', {{ t.description | tojson }})"`
+  — `tojson` produces a JSON string (double-quote delimited) but does
+  **not** HTML-escape it for embedding inside a double-quoted HTML
+  attribute. A description containing any literal `"` (or really any
+  description at all, since `tojson` always wraps the string in `"..."`)
+  closed the `onclick="..."` attribute early, truncating the handler —
+  confirmed by rendering the real page and inspecting the actual HTML:
+  `onclick="openEditDescription('test-skill', "Use this skill..."` was
+  cut off mid-attribute.
+- Fixed by moving the data out of the inline handler entirely:
+  `data-name`/`data-description` attributes (plain Jinja interpolation,
+  which *does* correctly HTML-escape for attribute context — verified
+  by hand with a description containing both `'` and `"`, rendered as
+  `&#39;`/`&#34;`) plus `onclick="openEditDescription(this)"` reading
+  `this.dataset.name`/`this.dataset.description` in JS instead of
+  receiving them as literal arguments baked into the HTML.
+- Added `test_edit_button_data_attributes_survive_quotes_in_description`
+  reproducing the exact failure mode (a description with both `'` and
+  `"`) and asserting the button's markup stays well-formed. Full suite:
+  123/123 passing.
