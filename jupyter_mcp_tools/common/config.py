@@ -39,6 +39,15 @@ class AppConfig:
     # address is a notebook-level constant the admin hand-edits, not
     # stored here.
     bitbucket_base_url: str | None = None
+    # HTTPS credentials for `git push`-ing the shared tools directory
+    # after every skill install (see common/git_push.py) — only the main
+    # admin can set these (the "⚙" dialog's edit form never renders on a
+    # child relay). The shared directory is assumed to already be a git
+    # repo with its remote configured; this project never touches the
+    # remote itself, only pushes to it. Push is skipped entirely if
+    # either of these is empty.
+    git_push_username: str | None = None
+    git_push_password: str | None = None
 
     @property
     def shared_dir_path(self) -> Path:
@@ -53,6 +62,8 @@ def load_config() -> AppConfig:
     return AppConfig(
         shared_dir=data.get("shared_dir"),
         bitbucket_base_url=data.get("bitbucket_base_url"),
+        git_push_username=data.get("git_push_username"),
+        git_push_password=data.get("git_push_password"),
     )
 
 
@@ -60,3 +71,7 @@ def save_config(config: AppConfig) -> None:
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(asdict(config), indent=2))
+    # config.json now potentially holds a plaintext git password — lock
+    # it down the same way admins.json already is, rather than leaving it
+    # at the default (world-readable on a shared filesystem) permissions.
+    path.chmod(0o600)

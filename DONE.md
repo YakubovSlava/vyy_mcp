@@ -927,3 +927,55 @@
   `test_server_sync.py`'s `test_doc_skill_round_trip` to pass
   `name=`/`description=` explicitly now that the example's `SKILL.md`
   no longer carries them. Full suite: 100/100 passing.
+
+## 2026-10-20 (automatic git push on every skill install)
+
+- Per explicit request ("при каждом добавлении скилла в указанной папке
+  происходил push по обновлениям", credentials "редактироваться только у
+  главного админа в настройках"), added `common/git_push.py`:
+  `push_shared_dir()` shells out to the real `git` binary
+  (`add`/`commit`/`push`) in the shared tools directory, which is assumed
+  to already be a git repo with its remote configured (this project
+  never runs `git init`/`git remote add` itself). Best-effort — a
+  failure never blocks the skill install that triggered it, just returns
+  an error string instead of raising.
+- Credentials never touch the push command/URL (would leak via `ps aux`
+  to every local user on a shared host): added
+  `scripts/git_askpass.py`, a `GIT_ASKPASS` script that answers git's
+  username/password prompts from its own `GIT_PUSH_USERNAME`/
+  `GIT_PUSH_PASSWORD` env vars instead, set only for that one
+  `subprocess.run` call.
+- `AppConfig` gained `git_push_username`/`git_push_password`
+  (`common/config.py`) — configured only by the main admin via the
+  existing "⚙" settings dialog, which already only renders its edit form
+  on the main host (not a child relay) and already 403s
+  `/config/shared-dir` there, so no new access control was needed.
+  `save_config()` now `chmod(0o600)`s `config.json` on every write, to
+  match `admins.json`'s existing permissions now that this file can hold
+  a plaintext secret. The password is never echoed back into the
+  rendered form (`_render()` only passes a `git_push_password_set` flag);
+  resubmitting the settings form with that field blank keeps the
+  previously saved password instead of clearing it.
+- Wired the actual push into both places `registry.install_tool()`
+  writes to the real shared directory on the main host:
+  `upload_tool()`'s local-install branch and `api_upload_tool()` (the
+  JSON endpoint a child relay's `curl` call hits). A push failure
+  appends a warning to the success banner rather than replacing it;
+  `api_upload_tool()`'s response gained a non-breaking `git_push_error`
+  field so the relay's own HTML handler can read it back and append the
+  same warning to *its* banner too.
+- Found and fixed a locale bug while writing tests: this machine's `git`
+  reports "нечего коммитить" (Russian), not "nothing to commit", for an
+  empty commit — the original implementation string-matched the English
+  phrase to distinguish "nothing changed" from a real commit failure,
+  which silently broke under a non-English git locale. Fixed by checking
+  `git diff --cached --quiet`'s exit code before committing at all,
+  instead of parsing `git commit`'s (locale-dependent) output.
+- Tests: new `test_git_push.py` (4 tests, using a real local bare repo +
+  working clone so `file://` push actually exercises the real
+  `git add/commit/push` subprocess chain — happy path, nothing-to-commit,
+  not-a-git-repo, and a push-failure case via a broken remote URL).
+  `test_admin_api.py` gained `test_set_shared_dir_keeps_git_password_when_left_blank`
+  and `test_upload_pushes_to_git_when_configured` (full upload → install
+  → push round trip against a real bare repo, asserting the commit
+  actually lands there). Full suite: 106/106 passing.

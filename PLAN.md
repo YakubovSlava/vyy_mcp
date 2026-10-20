@@ -468,6 +468,49 @@ available to every user of the server — without restarting anything.
   explicitly (`{**asdict(manifest), "kind": manifest.kind}`) rather than
   relying on `asdict()` alone, or the admin UI's code/doc badge would
   silently always be missing that key.
+- **Automatic `git push` of the shared directory after every skill
+  install, per explicit request.** Scoped deliberately narrow based on
+  the user's own answers: the shared directory is assumed to *already*
+  be a git repo with its remote configured — this project never runs
+  `git init`/`git remote add` itself, only `add`/`commit`/`push` in an
+  existing repo; and auth is plain HTTPS username/password (not a
+  token-specific flow, not SSH), matching what the user actually has.
+  New `common/git_push.py` shells out to the real `git` binary via
+  `subprocess` (same "it's exactly what a human typing the command would
+  do" philosophy as `common/curl_client.py`'s curl-only rule for
+  main↔child traffic, applied here to git for the same reason —
+  auditability over a wrapper library). Push is best-effort: a failure
+  never blocks the install that triggered it, only appends a warning to
+  the success banner (both the direct HTML upload path and the JSON
+  `/api/tools` a child relay's `curl` call hits — the latter via a new
+  non-breaking `git_push_error` field in that endpoint's response,
+  which the relay's own HTML handler reads back out and appends to its
+  own banner).
+- **Credentials for `git push` go through `GIT_ASKPASS`
+  (`scripts/git_askpass.py`), never embedded in the push command/URL
+  itself.** `ps aux` on a shared host shows every process's argv to
+  every local user; a plaintext password baked into the git command
+  line would leak there. The askpass script instead reads
+  `GIT_PUSH_USERNAME`/`GIT_PUSH_PASSWORD` from its own environment
+  (set only for the one `subprocess.run` call, not the parent process's
+  persistent environment) and answers git's username/password prompts
+  from that — visible only via `/proc/<pid>/environ` to the same user,
+  not via a process listing to everyone.
+- **The git password is configured only by the main admin, in the same
+  "⚙" settings dialog as the shared directory**, per explicit request
+  ("Логин и пароль... будут редактироваться только у главного админа в
+  настройках") — this required no new access-control code at all: that
+  dialog's edit *form* already only renders when `not remote` (see the
+  original multi-admin entry above), and `/config/shared-dir` already
+  403s outright on a child relay. Stored in `AppConfig.git_push_username`/
+  `git_push_password` in `config.json`, which now gets `chmod(0o600)` on
+  every save (it didn't before — there was nothing secret in it until
+  now) to match `admins.json`'s existing permissions. The password is
+  never echoed back into the rendered form (`_render()` only passes a
+  `git_push_password_set` boolean, never the value) — submitting
+  `/config/shared-dir` with that field left blank keeps the previously
+  saved password rather than clearing it, the same "blank means
+  unchanged" convention a secret-field form always needs.
 
 ## Shared tools directory layout
 

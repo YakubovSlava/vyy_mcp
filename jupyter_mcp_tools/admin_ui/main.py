@@ -36,7 +36,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
-from ..common import auth, curl_client, registry, session, users
+from ..common import auth, curl_client, git_push, registry, session, users
 from ..common.config import AppConfig, load_config, save_config
 from ..common.manifest import ToolValidationError
 from ..common.registry import ToolAlreadyExistsError, ToolNotFoundError
@@ -199,6 +199,24 @@ def _remote_list_tools() -> tuple[list[dict], str | None]:
         return [], "Main host returned a response that wasn't valid JSON."
 
 
+def _maybe_git_push(config: AppConfig, shared_dir: Path, skill_name: str) -> str | None:
+    """Best-effort git push of `shared_dir` after installing a skill.
+
+    Returns an error detail string if a push was attempted and failed,
+    `None` otherwise — including when it's not configured at all (see
+    AppConfig.git_push_username/git_push_password). Never raises: a
+    failed push must not block the skill install that triggered it.
+    """
+    if not (config.git_push_username and config.git_push_password):
+        return None
+    return git_push.push_shared_dir(
+        shared_dir,
+        username=config.git_push_username,
+        password=config.git_push_password,
+        commit_message=f"Add skill '{skill_name}'",
+    )
+
+
 def _render(request: Request, **extra):
     """Renders the Skills page (templates/index.html)."""
     error = extra.get("error")
@@ -209,6 +227,8 @@ def _render(request: Request, **extra):
         error = error or remote_error
         address_label = MAIN_HOST
         bitbucket_base_url = ""
+        git_push_username = ""
+        git_push_password_set = False
     else:
         config = load_config()
         shared_dir = config.shared_dir_path
@@ -216,6 +236,11 @@ def _render(request: Request, **extra):
         tools = [registry.manifest_to_dict(m) for m in registry.list_tools(shared_dir)]
         address_label = str(shared_dir)
         bitbucket_base_url = config.bitbucket_base_url or ""
+        git_push_username = config.git_push_username or ""
+        # Never echo the stored password back into the page — just
+        # whether one is already set, so the form can show a "уже
+        # установлен" placeholder instead of leaking it into the HTML.
+        git_push_password_set = bool(config.git_push_password)
 
     return templates.TemplateResponse(
         request,
@@ -225,6 +250,8 @@ def _render(request: Request, **extra):
             "active_page": "skills",
             "shared_dir": address_label,
             "bitbucket_base_url": bitbucket_base_url,
+            "git_push_username": git_push_username,
+            "git_push_password_set": git_push_password_set,
             "tools": tools,
             "message": message,
             "error": error,
@@ -332,13 +359,28 @@ def set_shared_dir(
     request: Request,
     path: str = Form(...),
     bitbucket_base_url: str = Form(""),
+    git_push_username: str = Form(""),
+    git_push_password: str = Form(""),
     _admin: str | None = Depends(require_admin_page),
 ):
     if MAIN_HOST:
         raise HTTPException(status_code=403, detail="The shared directory is managed on the main host only.")
     new_path = Path(path).expanduser()
     new_path.mkdir(parents=True, exist_ok=True)
-    save_config(AppConfig(shared_dir=str(new_path), bitbucket_base_url=bitbucket_base_url or None))
+
+    # A blank git_push_username/git_push_password means "leave it as is" —
+    # the password field in particular is never pre-filled with the real
+    # value (see _render()), so submitting the form without retyping it
+    # must not silently disable the push.
+    existing = load_config()
+    save_config(
+        AppConfig(
+            shared_dir=str(new_path),
+            bitbucket_base_url=bitbucket_base_url or None,
+            git_push_username=git_push_username or existing.git_push_username,
+            git_push_password=git_push_password or existing.git_push_password,
+        )
+    )
     return _redirect_to_root(request, message=f"Общая директория с навыками установлена на {new_path}")
 
 
@@ -389,9 +431,10 @@ async def upload_tool(
                 return _redirect_to_root(
                     request, error=payload.get("error", f"Основной хост вернул HTTP {resp.status}.")
                 )
-            return _redirect_to_root(
-                request, message=f"«{payload['name']}» v{payload['version']} установлен для всех пользователей."
-            )
+            message = f"«{payload['name']}» v{payload['version']} установлен для всех пользователей."
+            if payload.get("git_push_error"):
+                message += f" Внимание: git push на основном хосте не выполнен ({payload['git_push_error']})."
+            return _redirect_to_root(request, message=message)
 
         config = load_config()
         shared_dir = config.shared_dir_path
@@ -401,9 +444,11 @@ async def upload_tool(
             )
         except (ToolValidationError, ToolAlreadyExistsError) as exc:
             return _redirect_to_root(request, error=str(exc))
-        return _redirect_to_root(
-            request, message=f"«{manifest.name}» v{manifest.version} установлен для всех пользователей."
-        )
+        message = f"«{manifest.name}» v{manifest.version} установлен для всех пользователей."
+        push_error = _maybe_git_push(config, shared_dir, manifest.name)
+        if push_error:
+            message += f" Внимание: git push не выполнен ({push_error})."
+        return _redirect_to_root(request, message=message)
     finally:
         tmp_path.unlink(missing_ok=True)
 
@@ -480,7 +525,8 @@ async def api_upload_tool(
     finally:
         tmp_path.unlink(missing_ok=True)
 
-    return {"name": manifest.name, "version": manifest.version}
+    push_error = _maybe_git_push(config, shared_dir, manifest.name)
+    return {"name": manifest.name, "version": manifest.version, "git_push_error": push_error}
 
 
 @app.post("/api/tools/{name}/delete")

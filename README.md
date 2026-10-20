@@ -397,6 +397,32 @@ The response is `{"message": "...", "files": [{"filename", "content",
 working skill using this pattern (zip it the same way as any other
 example: `python examples/build_archive.py setup_files_tool`).
 
+## Automatic git push on every skill install
+
+If the shared tools directory is **already a git repository with its
+remote configured** (this project never runs `git init`/`git remote add`
+for you), the main admin can set a git login/password in the "⚙"
+settings dialog on the Skills page — only there, only for the main host
+(a child relay has no shared directory of its own to push, see
+"Multi-host setup" above). Once set, every successful skill install runs
+`git add -A && git commit && git push` in that directory.
+
+- Push is **opt-in and best-effort**: if the username/password fields
+  are empty, nothing happens; if a push fails (network, auth, ...), the
+  skill is still installed — the failure shows up as a warning appended
+  to the success banner instead of blocking anything.
+- The password is never echoed back into the settings form — leaving
+  that field blank when saving other settings keeps the stored password
+  unchanged. It's written to `config.json` (chmod'd `0600`, same as
+  `admins.json`) alongside the other data files — see "Where data files
+  live" above.
+- Credentials are passed to `git push` through `GIT_ASKPASS`
+  (`scripts/git_askpass.py`), not embedded in the push URL/command, so
+  they never show up in `ps aux` output on a shared host.
+- A child relay's upload also triggers this: the main host pushes after
+  installing, and a push failure is reported back through the relay's
+  own success banner too.
+
 ## Running tests
 
 ```bash

@@ -1,4 +1,5 @@
 import importlib
+import subprocess
 import zipfile
 
 import pytest
@@ -103,6 +104,59 @@ def test_set_shared_dir(client, tmp_path):
     assert r.status_code == 200
     assert new_dir.exists()
     assert str(new_dir) in r.text
+
+
+def _run(*args, cwd):
+    subprocess.run(args, cwd=cwd, check=True, capture_output=True, text=True)
+
+
+def test_set_shared_dir_keeps_git_password_when_left_blank(client, tmp_path):
+    client.post(
+        "/config/shared-dir",
+        data={"path": str(tmp_path / "shared"), "git_push_username": "bob", "git_push_password": "s3cr3t"},
+    )
+    # Resubmitting without retyping the password must not clear it --
+    # the form never echoes the stored password back (see _render()).
+    client.post("/config/shared-dir", data={"path": str(tmp_path / "shared")})
+
+    from jupyter_mcp_tools.common.config import load_config
+
+    config = load_config()
+    assert config.git_push_username == "bob"
+    assert config.git_push_password == "s3cr3t"
+
+
+def test_upload_pushes_to_git_when_configured(client, tmp_path):
+    # A bare "remote" plus a working clone of it -- local file:// transport
+    # needs no real credentials, so this exercises the actual upload ->
+    # install -> git add/commit/push chain end to end.
+    bare = tmp_path / "remote.git"
+    bare.mkdir()
+    _run("git", "init", "--bare", "-q", cwd=bare)
+
+    shared = tmp_path / "shared_clone"
+    _run("git", "clone", "-q", str(bare), str(shared), cwd=tmp_path)
+    _run("git", "config", "user.email", "test@example.com", cwd=shared)
+    _run("git", "config", "user.name", "Test", cwd=shared)
+    (shared / "README.md").write_text("init\n")
+    _run("git", "add", "-A", cwd=shared)
+    _run("git", "commit", "-q", "-m", "init", cwd=shared)
+    _run("git", "push", "-q", "origin", "HEAD", cwd=shared)
+
+    client.post(
+        "/config/shared-dir",
+        data={"path": str(shared), "git_push_username": "x", "git_push_password": "y"},
+    )
+
+    data = _archive_bytes(tmp_path)
+    r = client.post("/tools/upload", files={"archive": ("greet.zip", data, "application/zip")})
+    assert "установлен" in r.text
+    assert "git push" not in r.text  # no "внимание: git push не выполнен" warning
+
+    log = subprocess.run(
+        ["git", "log", "--oneline", "-1"], cwd=bare, capture_output=True, text=True, check=True
+    ).stdout
+    assert "greet" in log
 
 
 def test_delete_missing_tool_shows_friendly_error(client):
