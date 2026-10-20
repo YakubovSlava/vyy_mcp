@@ -247,31 +247,33 @@ someone a file).
 Generate/update that file once:
 
 ```bash
-python scripts/build_connect_notebook.py <main-host-url> <bitbucket-script-path>
+python scripts/build_connect_notebook.py <main-host-url> <bitbucket-base-url>
 ```
 
 - `<main-host-url>` — this admin UI's own address (used for self-registration).
-- `<bitbucket-script-path>` — a script that takes a Bitbucket username as
-  its argument and a password on stdin, and prints the *current* MCP host
-  address to stdout. This project doesn't write that script — it's
-  whatever your org already has for resolving the live address from
-  Bitbucket. No real script yet? Point this at
-  `scripts/mock_resolve_host.py` instead — it ignores whatever
-  credentials it's given and always prints `http://127.0.0.1:8765`, so
-  you can exercise the whole flow locally before the real Bitbucket
-  integration exists.
+- `<bitbucket-base-url>` — the base URL of your org's Bitbucket Server/Data
+  Center instance. The notebook's lookup cell calls that instance's REST
+  API directly (`<bitbucket-base-url>/rest/api/1.0/projects/<project>/repos/<repo>/raw/<path>`,
+  Basic Auth with the end user's own Bitbucket username/password or
+  personal access token) to download a raw file holding the *current* MCP
+  host address. Which project/repo/file that is is controlled by the
+  `BITBUCKET_PROJECT`/`BITBUCKET_REPO`/`BITBUCKET_FILE_PATH` constants in
+  the notebook's first cell (placeholder values by default) — hand-edit
+  those three directly in the `.ipynb` to point at wherever your org
+  actually keeps that file.
 
-Both values are baked into the notebook's first code cell as plain
-`MAIN_HOST`/`BITBUCKET_SCRIPT_PATH` constants — re-run the command above,
-or just hand-edit those two lines directly in the `.ipynb`, whenever
-either changes.
+All of these are baked into the notebook's first code cell as plain
+constants — re-run the command above, or just hand-edit the lines
+directly in the `.ipynb`, whenever any of them change.
 
 Once distributed, every end user who opens and runs it:
 
 - prompts for their Bitbucket username/password,
-- runs `BITBUCKET_SCRIPT_PATH` locally to resolve the current host address,
-- prints the MCP connection command (with their OS username filled in
-  automatically via `getpass.getuser()`),
+- calls Bitbucket's REST API directly to resolve the current host address
+  (see above — no external script to write or maintain),
+- prints the MCP connection command for both Claude Code and opencode
+  (with their OS username filled in automatically via
+  `getpass.getuser()`),
 - and self-registers back to the main host over `curl` — so they show up
   in the admin UI's "Users" list right after running it, without needing
   their first real MCP call to do it.
@@ -295,34 +297,33 @@ which file sits at its root — a shared directory can hold a mix of both.
 
 ### Code skills
 
-At minimum:
+No `manifest.json` — a code skill is a single `.py` file (any filename)
+with exactly one top-level function, which is itself the manifest:
 
-```
-manifest.json
-<module>.py
-```
-
-`manifest.json`:
-
-```json
-{
-  "name": "echo",
-  "version": "1.0.0",
-  "description": "Echoes the given text back",
-  "entrypoint": "tool:echo",
-  "parameters": { "type": "object", "properties": { "text": { "type": "string" } } }
-}
+```python
+# tool.py
+def echo(text: str, shout: bool = False) -> str:
+    """Echoes the given text back, optionally shouting it."""
+    return text.upper() if shout else text
 ```
 
-- `name` — unique slug (`[a-z0-9][a-z0-9_-]+`), also the MCP tool name.
-- `entrypoint` — `"<module>:<function>"`; `<module>.py` must exist at the
-  archive root and define `<function>` as a top-level function.
-- `parameters` — optional, for documentation only. The MCP input schema
-  the server actually advertises is inferred from the function's type
-  hints, same as any other FastMCP tool.
+- The **function's name** becomes the skill's name and the MCP tool
+  name — must match `[a-z0-9][a-z0-9_-]+` (any ordinary snake_case
+  Python function name already does).
+- The **function's docstring** becomes the skill's description —
+  required, upload is rejected without one.
+- The **MCP input schema** is inferred from the function's type hints,
+  same as any other FastMCP tool — nothing else to declare.
+- The **version** is an optional module-level `__version__ = "..."`
+  string literal; defaults to `"1.0.0"` if absent.
+- The archive/folder must contain exactly one `.py` file at its root —
+  more than one, or a module with more than one top-level function, is
+  rejected with a clear error (there's no manifest left to say which one
+  is the entrypoint).
 
-Validation on upload is structural only (valid zip, manifest fields,
-module parses, function exists) — archive code is **not** executed during
+Validation on upload is structural only (valid zip, exactly one `.py` at
+the root, it parses, has exactly one top-level function, and that
+function has a docstring) — archive code is **not** executed during
 validation, but it **is** executed when a client calls the tool. This
 project assumes a trusted internal environment (the same trust boundary as
 your JupyterHub/server login), not a public multi-tenant sandbox — don't

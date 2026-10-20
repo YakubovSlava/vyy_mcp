@@ -1,5 +1,5 @@
-"""Zip a tool directory (manifest.json + entrypoint module) into an archive
-ready to upload through the admin UI.
+"""Zip a tool directory (a self-describing .py file, or a SKILL.md bundle)
+into an archive ready to upload through the admin UI.
 
 Usage: python examples/build_archive.py echo_tool
 """

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from jupyter_mcp_tools.common import registry
 from jupyter_mcp_tools.mcp_server.server import build_app, sync_tools
-from jupyter_mcp_tools.tests.conftest import VALID_MANIFEST, VALID_MODULE
+from jupyter_mcp_tools.tests.conftest import VALID_MODULE
 
 EXAMPLES_DIR = Path(__file__).parent.parent.parent / "examples"
 
@@ -28,7 +28,7 @@ def test_sync_registers_and_removes_tools(make_archive, shared_dir):
     sync_tools(app, shared_dir)
     assert app._tool_manager.list_tools() == []
 
-    archive = make_archive("greet", VALID_MANIFEST, VALID_MODULE)
+    archive = make_archive("greet", VALID_MODULE)
     registry.install_tool(archive, shared_dir)
     sync_tools(app, shared_dir)
 
@@ -46,12 +46,12 @@ def test_sync_registers_and_removes_tools(make_archive, shared_dir):
 def test_sync_picks_up_updated_tool_code(make_archive, shared_dir):
     app = build_app(shared_dir)
 
-    archive = make_archive("greet", VALID_MANIFEST, VALID_MODULE)
+    archive = make_archive("greet", VALID_MODULE)
     registry.install_tool(archive, shared_dir)
     sync_tools(app, shared_dir)
 
     updated_module = VALID_MODULE.replace("Hello", "Hi")
-    archive2 = make_archive("greet2", VALID_MANIFEST, updated_module)
+    archive2 = make_archive("greet2", updated_module)
     registry.install_tool(archive2, shared_dir, overwrite=True)
     sync_tools(app, shared_dir)
 

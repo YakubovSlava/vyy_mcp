@@ -32,12 +32,13 @@ def config_path() -> Path:
 @dataclass
 class AppConfig:
     shared_dir: str | None = None
-    # Path to an external script that takes a Bitbucket username (argv) and
-    # password (stdin) and prints the current MCP host address to stdout.
-    # Invoked by the connection notebook generated at GET /connect/<code>
-    # (see admin_ui/notebook_builder.py) — we don't write this script, it's
-    # whatever the Bitbucket-hosting side already has.
-    bitbucket_script_path: str | None = None
+    # Base URL of the org's Bitbucket Server/Data Center instance, baked
+    # into the distributed connection notebook (see
+    # admin_ui/notebook_builder.py) as the BITBUCKET_BASE_URL constant —
+    # which project/repo/file within it holds the current MCP host
+    # address is a notebook-level constant the admin hand-edits, not
+    # stored here.
+    bitbucket_base_url: str | None = None
 
     @property
     def shared_dir_path(self) -> Path:
@@ -51,7 +52,7 @@ def load_config() -> AppConfig:
     data = json.loads(path.read_text())
     return AppConfig(
         shared_dir=data.get("shared_dir"),
-        bitbucket_script_path=data.get("bitbucket_script_path"),
+        bitbucket_base_url=data.get("bitbucket_base_url"),
     )
 
 

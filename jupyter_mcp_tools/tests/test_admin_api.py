@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from jupyter_mcp_tools.common import auth
-from jupyter_mcp_tools.tests.conftest import VALID_MANIFEST, VALID_MODULE
+from jupyter_mcp_tools.tests.conftest import VALID_MODULE
 
 ADMIN_USER = "alice"
 ADMIN_PASSWORD = "s3cret"
@@ -48,10 +48,9 @@ def client(app_module):
     return test_client
 
 
-def _archive_bytes(tmp_path, manifest=VALID_MANIFEST, module=VALID_MODULE):
+def _archive_bytes(tmp_path, module=VALID_MODULE):
     path = tmp_path / "upload.zip"
     with zipfile.ZipFile(path, "w") as zf:
-        zf.writestr("manifest.json", manifest)
         zf.writestr("tool.py", module)
     return path.read_bytes()
 
@@ -59,7 +58,7 @@ def _archive_bytes(tmp_path, manifest=VALID_MANIFEST, module=VALID_MODULE):
 def test_index_loads(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert "No skills installed yet" in r.text
+    assert "Навыки пока не установлены" in r.text
 
 
 def test_upload_install_list_and_delete(client, tmp_path):
@@ -69,7 +68,7 @@ def test_upload_install_list_and_delete(client, tmp_path):
         files={"archive": ("greet.zip", data, "application/zip")},
     )
     assert r.status_code == 200
-    assert "Installed &#39;greet&#39;" in r.text or "Installed 'greet'" in r.text
+    assert "«greet»" in r.text
 
     r = client.get("/api/tools", auth=(ADMIN_USER, ADMIN_PASSWORD))
     assert r.status_code == 200
@@ -95,7 +94,7 @@ def test_upload_invalid_archive_shows_error(client):
         "/tools/upload",
         files={"archive": ("bad.zip", b"not a zip", "application/zip")},
     )
-    assert "Error:" in r.text
+    assert "Ошибка:" in r.text
 
 
 def test_set_shared_dir(client, tmp_path):
@@ -124,7 +123,7 @@ def test_form_actions_are_relative(client):
 def test_login_page_loads(anon_client):
     r = anon_client.get("/login")
     assert r.status_code == 200
-    assert "Sign in" in r.text
+    assert "Войти" in r.text
 
 
 def test_login_page_itself_has_no_self_correct_script(anon_client):
@@ -147,7 +146,7 @@ def test_unauthenticated_html_routes_redirect_to_login(anon_client, tmp_path):
     # of issuing a redirect at all.
     r = anon_client.get("/", follow_redirects=False)
     assert r.status_code == 200
-    assert "Sign in" in r.text
+    assert "Войти" in r.text
     assert "location.replace" in r.text
 
     data = _archive_bytes(tmp_path)
@@ -189,7 +188,7 @@ def test_logout_clears_session(client):
     client.post("/logout")
     r = client.get("/", follow_redirects=False)
     assert r.status_code == 200
-    assert "Sign in" in r.text
+    assert "Войти" in r.text
 
 
 def test_api_requires_basic_auth_not_session_cookie(client):

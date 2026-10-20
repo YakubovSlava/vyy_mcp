@@ -616,3 +616,130 @@
   `initialize()` → `list_tools()` → `call_tool()` round trip through a
   real `mcp` SDK client session and confirmed the tool's description and
   both calling conventions (no-arg, `file=`) worked as designed.
+
+## 2026-10-20 (admin UI translated to Russian)
+
+- Translated every user-facing string in the admin UI to Russian, per
+  explicit request: `templates/base.html` (nav tabs, sign-out, error
+  banner), `templates/login.html` (title, labels, button, error message),
+  `templates/index.html` (skill rows, empty state, both dialogs),
+  `templates/users.html` (section, empty state), `templates/docs.html`
+  (every section). `admin_ui/main.py`'s banner messages ("installed for
+  all users", "removed for all users", "could not reach main host", etc.)
+  were translated too, since they render into the same banners. Left in
+  English on purpose: the `ToolValidationError`/etc. exception message
+  text (internal/dev-facing, and pinned by existing `match=` regexes in
+  several test files — translating it would've meant rewriting those
+  tests for no user-facing benefit), and the "MJApp" brand name itself.
+- Updated every test asserting on the old English strings
+  (`test_admin_api.py`, `test_remote_mode.py`,
+  `test_user_registration_api.py`) to match the new Russian text. Full
+  suite: 91/91 passing.
+- Restarted both live processes (admin UI on 8766, MCP server on 8765)
+  against the real `MCP_TOOLS_DATA_DIR` to pick up the change, verified
+  via `curl` that an unauthenticated `GET /` now renders the Russian
+  login page.
+
+## 2026-10-20 (code skills no longer need manifest.json)
+
+- Per explicit request ("Модуль с документацией выглядит некрасиво.
+  Сделай так, чтобы нам не нужны были manifest json" — the separate JSON
+  manifest was ugly, redundant ceremony around a single function),
+  rewrote `common/manifest.py` so a code skill is just one self-describing
+  `.py` file: the archive/folder must contain exactly one top-level `.py`
+  file with exactly one top-level function. That function's **name**
+  becomes the skill/tool name (validated against the same `NAME_RE` as
+  before), its **docstring** becomes the description (required — upload
+  is rejected without one), and an optional module-level `__version__ =
+  "..."` string literal sets the version (defaults to `"1.0.0"`).
+  `entrypoint` is computed as `f"{module_stem}:{func.name}"` instead of
+  being declared. The `parameters` field is gone entirely — it was
+  already dead, documentation-only weight nothing read (the real MCP
+  schema has always come from the function's type hints, per the
+  existing "Input schema comes from Python type hints" decision in
+  PLAN.md). Chose AskUserQuestion's "metadata from
+  docstring/signature" option over "drop code skills entirely in favor
+  of SKILL.md" or "just restyle the Docs page" — the first because
+  Python skills with real type-hinted parameters are still useful and
+  distinct from markdown-only doc skills; the second because the user's
+  complaint was about needing the file at all, not just how it's
+  displayed.
+- `common/registry.py`'s bundle-kind detection no longer checks for
+  `manifest.json` — it now checks for a `.py` file at the root instead
+  (`root_python_files()`, new in `manifest.py`), and re-reading an
+  already-installed code skill (`_load_installed`) calls a new
+  `validate_dir()` that re-derives the manifest from the on-disk `.py`
+  file every time, the same way `validate_doc_skill_dir` already did for
+  doc skills — no manifest is ever cached to a file on disk for either
+  kind now.
+- Migrated both real examples to the new format by simply deleting their
+  now-redundant `manifest.json` (both `tool.py` files already had
+  docstrings on their single function, so no code changes were needed):
+  `examples/echo_tool/`, `examples/setup_files_tool/`. Also removed a
+  stray `examples/repo_explainer.zip` and `examples/.ipynb_checkpoints/`
+  that had accumulated from earlier manual testing — zips aren't allowed
+  in the repo per existing convention.
+- Admin UI: `templates/docs.html`'s "Code skills" section rewritten to
+  show the new single-function convention instead of a manifest.json
+  example; `templates/index.html`'s "Add a skill" dialog help text
+  updated to match. `PLAN.md`/`README.md` updated with the new format
+  and the architecture reasoning above.
+- Tests: rewrote `test_manifest.py` for the new AST-derived-manifest API
+  (valid archive, not-a-zip, no .py at root, more than one .py at root,
+  invalid function name, more than one top-level function, no top-level
+  function, missing docstring, syntax error, custom `__version__`
+  picked up, path traversal) — 11 tests, up from 8. Updated
+  `conftest.py`'s `make_archive`/`VALID_MODULE` fixtures and every caller
+  across `test_registry.py`, `test_server_sync.py`, `test_admin_api.py`,
+  `test_remote_mode.py` to stop writing a `manifest.json` member.
+  `test_docs_page.py`'s manifest-example assertion replaced with one
+  checking the new single-function example renders and `manifest.json`
+  is absent from the page. Full suite: 94/94 passing.
+
+## 2026-10-20 (connection notebook: opencode + real Bitbucket REST code)
+
+- Per explicit request, the connection notebook's "print the connection
+  command" cell now prints commands for **both** MCP clients — the
+  existing `claude mcp add ...` plus a new
+  `opencode mcp add shared-tools --url <mcp_url> --header
+  "X-MCP-User=<username>"` line, matching the exact syntax the user gave
+  (`opencode mcp add NAME --url ... --header "X-MCP-USER=..."`).
+- Replaced the pluggable-external-script Bitbucket lookup with real,
+  directly-runnable code, per explicit request ("сделай так, чтобы код я
+  прям вставил по извлечению данных с bitbucket" — give real code to
+  paste in, not a placeholder script path). `notebook_builder.py`'s
+  lookup cell now does an actual `requests.get(...)` against a Bitbucket
+  Server/Data Center REST endpoint
+  (`<base>/rest/api/1.0/projects/<project>/repos/<repo>/raw/<path>`) with
+  HTTP Basic Auth, assuming self-hosted Bitbucket Server/Data Center
+  (not Bitbucket Cloud, whose API is shaped differently) as the far more
+  likely setup behind an internal JupyterHub. `BITBUCKET_PROJECT`/
+  `BITBUCKET_REPO`/`BITBUCKET_FILE_PATH` are baked into the notebook with
+  placeholder values (`"PROJ"`/`"mcp-config"`/`"host.txt"`) the admin
+  hand-edits to point at wherever the org actually keeps the current MCP
+  host address — same bake-in-constants pattern `MAIN_HOST` already used.
+  Added `requests>=2.31` to `requirements.txt` (new runtime dependency —
+  this project had only used `curl` subprocess calls for HTTP so far;
+  `requests` was simpler here since this code runs on the *end user's*
+  machine inside their own notebook, not as part of this project's own
+  "main↔child goes over curl" requirement, which only applies to
+  admin-to-admin traffic).
+- Renamed `AppConfig.bitbucket_script_path` → `bitbucket_base_url`
+  throughout (`common/config.py`, `admin_ui/main.py`,
+  `templates/index.html`'s "⚙" dialog) — it now just displays the
+  Bitbucket instance's base URL as a reminder of what's baked into the
+  distributed notebook; it was never read at request time by anything
+  even before this change. Deleted `scripts/mock_resolve_host.py` (the
+  old script-based flow's local stand-in) — there's no external script
+  left to stand in for.
+- `scripts/build_connect_notebook.py`'s second CLI argument changed from
+  a script path to a Bitbucket base URL; regenerated the real committed
+  `notebooks/connect_to_mcp.ipynb` and confirmed both generated code
+  cells still parse as valid Python via `ast.parse`.
+- Tests: rewrote `test_notebook_builder.py` for the new
+  `build_notebook()` signature (`bitbucket_base_url` +
+  `bitbucket_project`/`bitbucket_repo`/`bitbucket_file_path` instead of
+  `bitbucket_script_path`), added assertions that the lookup cell
+  contains the real `requests.get` call and REST path shape, and that
+  the connect cell prints both the `claude` and `opencode` commands.
+  Full suite: 96/96 passing.

@@ -38,11 +38,11 @@ def test_docs_page_requires_admin_login(app_module):
     assert r.headers["location"] == "login"
 
 
-def test_docs_page_shows_manifest_example(client):
+def test_docs_page_shows_code_skill_example(client):
     r = client.get("/docs")
     assert r.status_code == 200
-    assert "manifest.json" in r.text
-    assert '"entrypoint": "tool:echo"' in r.text
+    assert "def echo(text: str, shout: bool = False) -> str:" in r.text
+    assert '"entrypoint": "tool:echo"' not in r.text
 
 
 def test_docs_page_shows_multi_file_result_convention(client):

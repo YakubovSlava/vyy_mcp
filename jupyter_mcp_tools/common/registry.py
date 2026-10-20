@@ -4,20 +4,19 @@ Shared layout under ``shared_dir``::
 
     tools/
       <name>/
-        manifest.json        # code skill: see common/manifest.py
-        <module>.py
+        <module>.py           # code skill: see common/manifest.py
         ...
       <other-name>/
         SKILL.md              # doc skill: see common/doc_skill.py
         ...
 
-Each installed folder is one of two bundle kinds, detected by which of
-``manifest.json``/``SKILL.md`` it contains — a single shared directory can
-hold a mix of both.
+Each installed folder is one of two bundle kinds, detected by whether it
+contains ``SKILL.md`` (doc skill) or a single ``.py`` file at its root
+(code skill, self-describing — no manifest.json) — a single shared
+directory can hold a mix of both.
 """
 from __future__ import annotations
 
-import json
 import shutil
 import tempfile
 import zipfile
@@ -25,7 +24,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .doc_skill import DocSkillManifest, find_skill_md_name, validate_doc_skill_archive, validate_doc_skill_dir
-from .manifest import Manifest, ToolValidationError, validate_archive
+from .manifest import Manifest, ToolValidationError, root_python_files, validate_archive, validate_dir
 
 AnyManifest = Manifest | DocSkillManifest
 
@@ -43,19 +42,21 @@ def tools_dir(shared_dir: Path) -> Path:
 
 
 def _validate_archive(archive_path: Path) -> AnyManifest:
-    """Detect whether `archive_path` is a code skill (manifest.json) or a
-    doc skill (SKILL.md) and validate it accordingly."""
+    """Detect whether `archive_path` is a doc skill (SKILL.md) or a code
+    skill (a single .py file at its root) and validate it accordingly."""
     if not zipfile.is_zipfile(archive_path):
         raise ToolValidationError("file is not a valid zip archive")
 
     with zipfile.ZipFile(archive_path) as zf:
         names = zf.namelist()
 
-    if "manifest.json" in names:
-        return validate_archive(archive_path)
     if find_skill_md_name(names) is not None:
         return validate_doc_skill_archive(archive_path)
-    raise ToolValidationError("archive must contain either manifest.json or SKILL.md at its root")
+    if root_python_files(names):
+        return validate_archive(archive_path)
+    raise ToolValidationError(
+        "archive must contain either SKILL.md (doc skill) or a single .py file at its root (code skill)"
+    )
 
 
 def install_tool(archive_path: Path, shared_dir: Path, overwrite: bool = False) -> AnyManifest:
@@ -89,13 +90,13 @@ def install_tool(archive_path: Path, shared_dir: Path, overwrite: bool = False) 
 def _load_installed(entry: Path) -> AnyManifest | None:
     """Parse an installed skill folder's manifest, whichever kind it is.
     Returns None if it doesn't look like a valid skill of either kind."""
-    if (entry / "manifest.json").exists():
+    if find_skill_md_name([p.name for p in entry.iterdir()]) is not None:
         try:
-            return Manifest.from_dict(json.loads((entry / "manifest.json").read_text()))
-        except (ToolValidationError, json.JSONDecodeError):
+            return validate_doc_skill_dir(entry)
+        except ToolValidationError:
             return None
     try:
-        return validate_doc_skill_dir(entry)
+        return validate_dir(entry)
     except ToolValidationError:
         return None
 

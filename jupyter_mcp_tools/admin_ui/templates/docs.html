@@ -1,43 +1,36 @@
 {% extends "base.html" %}
 
-{% block title_suffix %} — Docs{% endblock %}
+{% block title_suffix %} — Документация{% endblock %}
 
 {% block content %}
-<p class="section-title">Skill file structure</p>
+<p class="section-title">Структура файлов навыка</p>
 <div class="card">
   <div class="doc">
-    <h2>What a skill looks like on disk</h2>
-    <p>Every skill is a folder under the shared tools directory (shown on the "⚙" dialog in the Skills tab). There are two kinds of skill, distinguished by which file sits at the folder's root — a single shared directory can hold a mix of both:</p>
+    <h2>Как навык выглядит на диске</h2>
+    <p>Каждый навык — это папка в общей директории с навыками (путь показан в диалоге «⚙» на вкладке «Навыки»). Есть два вида навыков, которые различаются по тому, какой файл лежит в корне папки — никакого отдельного manifest.json не нужно ни для одного из них. В одной общей директории могут сосуществовать оба вида:</p>
     <div class="tree">{{ shared_dir }}/tools/
-  &lt;code-skill-name&gt;/
-    manifest.json
-    &lt;module&gt;.py      (the entrypoint module manifest.json points to)
-    ... any other files the module imports
-  &lt;doc-skill-name&gt;/
-    SKILL.md           (or skill.md)
-    ... any other supporting files/folders</div>
+  &lt;имя-code-навыка&gt;/
+    &lt;любое-имя&gt;.py    (единственный .py-файл — сам себе манифест)
+  &lt;имя-doc-навыка&gt;/
+    SKILL.md           (или skill.md)
+    ... любые другие сопутствующие файлы/папки</div>
 
-    <h2>Code skills: manifest.json</h2>
-    <pre><code>{
-  "name": "echo",
-  "version": "1.0.0",
-  "description": "Echoes the given text back",
-  "entrypoint": "tool:echo",
-  "parameters": { "type": "object", "properties": { "text": { "type": "string" } } }
-}</code></pre>
-    <ul>
-      <li><code>name</code> — unique slug (<code>[a-z0-9][a-z0-9_-]+</code>), also the MCP tool name.</li>
-      <li><code>entrypoint</code> — <code>"&lt;module&gt;:&lt;function&gt;"</code>; <code>&lt;module&gt;.py</code> must exist at the skill's root and define <code>&lt;function&gt;</code> as a top-level function.</li>
-      <li><code>parameters</code> — optional, documentation only. The real MCP input schema is inferred from the function's Python type hints.</li>
-    </ul>
-
-    <h2>The entrypoint module</h2>
+    <h2>Code-навыки: один .py-файл — и всё</h2>
+    <p>Code-навык — это один файл <code>.py</code> (с любым именем) с ровно одной функцией верхнего уровня. Отдельный manifest.json не нужен — сама функция и есть манифест:</p>
     <pre><code># tool.py
 def echo(text: str, shout: bool = False) -> str:
+    """Echoes the given text back, optionally shouting it."""
     return text.upper() if shout else text</code></pre>
+    <ul>
+      <li><strong>Имя функции</strong> становится именем навыка и MCP-инструмента — должно соответствовать <code>[a-z0-9][a-z0-9_-]+</code> (обычный snake_case уже подходит).</li>
+      <li><strong>Docstring функции</strong> становится описанием навыка — обязателен, без него установка будет отклонена.</li>
+      <li><strong>Входная схема MCP</strong> выводится из аннотаций типов параметров функции — отдельно описывать её не нужно.</li>
+      <li><strong>Версия</strong> — необязательная строка <code>__version__ = "1.2.3"</code> на уровне модуля; если её нет, используется <code>1.0.0</code> по умолчанию.</li>
+      <li>В архиве/папке должен быть ровно один <code>.py</code>-файл в корне — если функций несколько или файл не один, установка будет отклонена с понятной ошибкой.</li>
+    </ul>
 
-    <h2>Doc skills: SKILL.md</h2>
-    <p>A doc skill has no Python code — it's a <code>SKILL.md</code> file (YAML frontmatter + a markdown body) plus any supporting files the body refers to. This is Claude's "Agent Skills" format.</p>
+    <h2>Doc-навыки: SKILL.md</h2>
+    <p>У doc-навыка нет кода на Python — это файл <code>SKILL.md</code> (YAML-заголовок + markdown-текст) плюс любые сопутствующие файлы, на которые ссылается текст. Это формат «Agent Skills» от Claude.</p>
     <pre><code>---
 name: repo-explainer
 description: Use this when the user asks how this repository is organized, where a particular piece of functionality lives, or wants an onboarding overview before making a change.
@@ -45,38 +38,38 @@ description: Use this when the user asks how this repository is organized, where
 
 # Repo explainer
 
-... instructions for the agent go here ...
+... инструкции для агента здесь ...
 
 See `references/architecture.md` for more detail, or call this skill
 again with `file="references/architecture.md"` to read it directly.</code></pre>
     <ul>
-      <li><code>name</code> — unique slug (<code>[a-z0-9][a-z0-9_-]+</code>), also the MCP tool name.</li>
-      <li><code>description</code> — becomes the MCP tool's own description, so a connecting agent can decide when to call it purely from <code>tools/list</code> — write it the same way you'd write a code skill's <code>manifest.json</code> description, but aimed at "when should I use this," not "what does this do."</li>
-      <li>The body plus any other files in the folder (<code>references/</code>, images, etc.) are disclosed progressively, not dumped in one response — see the next section.</li>
+      <li><code>name</code> — уникальный слаг (<code>[a-z0-9][a-z0-9_-]+</code>), он же имя MCP-инструмента.</li>
+      <li><code>description</code> — становится собственным описанием MCP-инструмента, чтобы подключившийся агент мог решить, когда вызывать его, только по <code>tools/list</code> — пишите так же, как docstring функции для code-навыка, но с акцентом «когда это нужно использовать», а не «что это делает».</li>
+      <li>Текст плюс остальные файлы в папке (<code>references/</code>, изображения и т.д.) раскрываются постепенно, а не отдаются целиком за один ответ — см. следующий раздел.</li>
     </ul>
 
-    <h2>Calling a doc skill: progressive disclosure</h2>
+    <h2>Вызов doc-навыка: постепенное раскрытие</h2>
     <ul>
-      <li>Calling the tool with <strong>no arguments</strong> returns the <code>SKILL.md</code> body plus a listing of the other files in the skill's folder.</li>
-      <li>Calling it again with <strong>a <code>file</code> argument</strong> set to one of those listed paths returns that file's content as text.</li>
+      <li>Вызов инструмента <strong>без аргументов</strong> возвращает текст <code>SKILL.md</code> плюс список остальных файлов в папке навыка.</li>
+      <li>Повторный вызов <strong>с аргументом <code>file</code></strong>, равным одному из этих путей, возвращает содержимое этого файла как текст.</li>
     </ul>
-    <p>This keeps the initial tool response small — an agent only pulls in the extra files it actually needs for the task at hand. A full working example lives in <code>examples/repo_explainer/</code>.</p>
+    <p>Это делает первый ответ инструмента небольшим — агент подгружает дополнительные файлы только тогда, когда они реально нужны для задачи. Полноценный рабочий пример лежит в <code>examples/repo_explainer/</code>.</p>
 
-    <h2>Two ways to install a skill</h2>
+    <h2>Два способа установить навык</h2>
     <ul>
-      <li><strong>Upload a .zip</strong> via "+" on the Skills tab — the zip's root must contain either <code>manifest.json</code> (code skill) or <code>SKILL.md</code>/<code>skill.md</code> (doc skill), same layout as above.</li>
-      <li><strong>Drop the folder directly</strong> into <code>{{ shared_dir }}/tools/&lt;skill-name&gt;/</code> on disk — no upload needed, this works identically.</li>
+      <li><strong>Загрузить .zip</strong> через «+» на вкладке «Навыки» — в корне архива должен быть либо один <code>.py</code>-файл (code-навык), либо <code>SKILL.md</code>/<code>skill.md</code> (doc-навык), структура как выше.</li>
+      <li><strong>Положить папку напрямую</strong> в <code>{{ shared_dir }}/tools/&lt;имя-навыка&gt;/</code> на диске — загрузка через интерфейс не нужна, работает точно так же.</li>
     </ul>
 
-    <h2>How fast changes show up</h2>
+    <h2>Как быстро появляются изменения</h2>
     <ul>
-      <li>The Skills tab reads the directory fresh on every page load — changes are visible immediately on refresh.</li>
-      <li>The MCP server (what real agents/users call) re-scans the directory every 5 seconds and registers/unregisters tools automatically — no restart needed, whether the change came from the "+" upload or from editing files on disk directly.</li>
+      <li>Вкладка «Навыки» читает директорию заново при каждой загрузке страницы — изменения видны сразу после обновления.</li>
+      <li>MCP-сервер (к которому обращаются реальные агенты/пользователи) пересканирует директорию каждые 5 секунд и автоматически регистрирует/удаляет инструменты — перезапуск не нужен, независимо от того, пришло ли изменение через загрузку «+» или через прямое редактирование файлов на диске.</li>
     </ul>
-    <p>Validation on install is structural only (valid zip/folder, required fields present, module parses and the entrypoint function exists for code skills; frontmatter is valid YAML with a non-empty body for doc skills) — code is not executed during validation, only when a client actually calls the tool.</p>
+    <p>Проверка при установке — только структурная (валидный zip/папка; для code-навыков — ровно один <code>.py</code>-файл с одной функцией и docstring; для doc-навыков — YAML-заголовок валиден и текст не пустой) — код не выполняется во время проверки, только когда клиент реально вызывает инструмент.</p>
 
-    <h2>Returning multiple files for a human to run themselves</h2>
-    <p>A skill can return more than just a string — any JSON-serializable value gets sent straight back in the MCP response. Use this for a skill that should hand back files for the <em>calling human</em> to save and run under their own account, rather than a text answer. The server never runs anything here — same idea as the Bitbucket connection notebook.</p>
+    <h2>Возврат нескольких файлов для самостоятельного запуска человеком</h2>
+    <p>Навык может возвращать не только строку — любое JSON-сериализуемое значение отправляется прямо в ответе MCP. Используйте это для навыка, который должен отдать файлы <em>вызвавшему его человеку</em>, чтобы он сохранил и запустил их под своей учётной записью, вместо текстового ответа. Сервер здесь ничего не исполняет сам — та же идея, что и в ноутбуке подключения к Bitbucket.</p>
     <pre><code>from jupyter_mcp_tools.common.skill_results import SkillFile, files_result
 
 def make_setup_files(project_name: str) -> dict:
@@ -87,7 +80,7 @@ def make_setup_files(project_name: str) -> dict:
             SkillFile("config.yaml", f"project: {project_name}\n"),
         ],
     )</code></pre>
-    <p>Response shape: <code>{"message": ..., "files": [{"filename", "content", "run_hint"}, ...]}</code>. A full working example lives in <code>examples/setup_files_tool/</code>.</p>
+    <p>Форма ответа: <code>{"message": ..., "files": [{"filename", "content", "run_hint"}, ...]}</code>. Полноценный рабочий пример лежит в <code>examples/setup_files_tool/</code>.</p>
   </div>
 </div>
 {% endblock %}

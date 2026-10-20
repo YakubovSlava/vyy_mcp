@@ -22,7 +22,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from jupyter_mcp_tools.common import auth
-from jupyter_mcp_tools.tests.conftest import VALID_MANIFEST, VALID_MODULE
+from jupyter_mcp_tools.tests.conftest import VALID_MODULE
 
 
 def _free_port() -> int:
@@ -89,10 +89,9 @@ def child_client(main_host, monkeypatch, tmp_path):
     return TestClient(admin_main.app)
 
 
-def _archive_bytes(tmp_path, manifest=VALID_MANIFEST, module=VALID_MODULE):
+def _archive_bytes(tmp_path, module=VALID_MODULE):
     path = tmp_path / "upload.zip"
     with zipfile.ZipFile(path, "w") as zf:
-        zf.writestr("manifest.json", manifest)
         zf.writestr("tool.py", module)
     return path.read_bytes()
 
@@ -100,7 +99,7 @@ def _archive_bytes(tmp_path, manifest=VALID_MANIFEST, module=VALID_MODULE):
 def test_child_relay_lists_empty_main_host(child_client):
     r = child_client.get("/")
     assert r.status_code == 200
-    assert "No skills installed yet" in r.text
+    assert "Навыки пока не установлены" in r.text
     assert "Error:" not in r.text
 
 
@@ -123,17 +122,17 @@ def test_child_relay_upload_and_delete_round_trip(child_client, tmp_path):
     data = _archive_bytes(tmp_path)
     r = child_client.post("/tools/upload", files={"archive": ("greet.zip", data, "application/zip")})
     assert r.status_code == 200
-    assert "Installed" in r.text
+    assert "установлен" in r.text
 
     r = child_client.get("/")
     assert "greet" in r.text
 
     r = child_client.post("/tools/greet/delete")
     assert r.status_code == 200
-    assert "Removed" in r.text
+    assert "удалён" in r.text
 
     r = child_client.get("/")
-    assert "No skills installed yet" in r.text
+    assert "Навыки пока не установлены" in r.text
 
 
 def test_child_relay_address_dialog_shows_main_host_readonly(child_client, main_host):

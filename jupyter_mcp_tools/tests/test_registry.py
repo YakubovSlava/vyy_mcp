@@ -7,7 +7,7 @@ from jupyter_mcp_tools.common.doc_skill import DocSkillManifest
 from jupyter_mcp_tools.common.loader import load_entrypoint
 from jupyter_mcp_tools.common.manifest import ToolValidationError
 from jupyter_mcp_tools.common.registry import ToolAlreadyExistsError, ToolNotFoundError
-from jupyter_mcp_tools.tests.conftest import VALID_MANIFEST, VALID_MODULE
+from jupyter_mcp_tools.tests.conftest import VALID_MODULE
 
 VALID_SKILL_MD = """---
 name: repo-explainer
@@ -30,7 +30,7 @@ def _make_doc_skill_archive(tmp_path, name="repo-explainer", skill_md=VALID_SKIL
 
 
 def test_install_list_remove_round_trip(make_archive, shared_dir):
-    archive = make_archive("greet", VALID_MANIFEST, VALID_MODULE)
+    archive = make_archive("greet", VALID_MODULE)
 
     manifest = registry.install_tool(archive, shared_dir)
     assert manifest.name == "greet"
@@ -46,18 +46,18 @@ def test_install_list_remove_round_trip(make_archive, shared_dir):
 
 
 def test_install_duplicate_without_overwrite_raises(make_archive, shared_dir):
-    archive = make_archive("greet", VALID_MANIFEST, VALID_MODULE)
+    archive = make_archive("greet", VALID_MODULE)
     registry.install_tool(archive, shared_dir)
     with pytest.raises(ToolAlreadyExistsError):
         registry.install_tool(archive, shared_dir)
 
 
 def test_install_duplicate_with_overwrite_replaces(make_archive, shared_dir):
-    archive = make_archive("greet", VALID_MANIFEST, VALID_MODULE)
+    archive = make_archive("greet", VALID_MODULE)
     registry.install_tool(archive, shared_dir)
 
     updated_module = VALID_MODULE.replace("Hello", "Hi")
-    archive2 = make_archive("greet2", VALID_MANIFEST, updated_module)
+    archive2 = make_archive("greet2", updated_module)
     manifest = registry.install_tool(archive2, shared_dir, overwrite=True)
 
     fn = load_entrypoint(shared_dir, manifest)
@@ -76,7 +76,7 @@ def test_list_tools_empty_dir(shared_dir):
 def test_list_tools_skips_corrupted_entries(shared_dir):
     bad = shared_dir / "tools" / "broken"
     bad.mkdir(parents=True)
-    (bad / "manifest.json").write_text("not json")
+    (bad / "tool.py").write_text("def greet(name:\n")  # syntax error
     assert registry.list_tools(shared_dir) == []
 
 
@@ -94,7 +94,7 @@ def test_install_and_list_doc_skill(tmp_path, shared_dir):
 
 
 def test_code_and_doc_skills_coexist(tmp_path, make_archive, shared_dir):
-    code_archive = make_archive("greet", VALID_MANIFEST, VALID_MODULE)
+    code_archive = make_archive("greet", VALID_MODULE)
     doc_archive = _make_doc_skill_archive(tmp_path)
 
     registry.install_tool(code_archive, shared_dir)
@@ -104,11 +104,11 @@ def test_code_and_doc_skills_coexist(tmp_path, make_archive, shared_dir):
     assert names == ["greet", "repo-explainer"]
 
 
-def test_install_archive_without_manifest_or_skill_md_raises(tmp_path, shared_dir):
+def test_install_archive_without_py_or_skill_md_raises(tmp_path, shared_dir):
     archive = tmp_path / "neither.zip"
     with zipfile.ZipFile(archive, "w") as zf:
         zf.writestr("readme.txt", "hi")
-    with pytest.raises(ToolValidationError, match="manifest.json or SKILL.md"):
+    with pytest.raises(ToolValidationError, match="SKILL.md .* or a single .py file"):
         registry.install_tool(archive, shared_dir)
 
 

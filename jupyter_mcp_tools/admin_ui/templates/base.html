@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
 <head>
   {# Only the app root (index.html) overrides this — see that file for
      why: it's the only page whose path has no segment of its own to
@@ -284,9 +284,9 @@
       </div>
       {% if not remote %}
       <nav class="tabs">
-        <a href="." class="{{ 'active' if active_page == 'skills' else '' }}">Skills</a>
-        <a href="users" class="{{ 'active' if active_page == 'users' else '' }}">Users</a>
-        <a href="docs" class="{{ 'active' if active_page == 'docs' else '' }}">Docs</a>
+        <a href="." class="{{ 'active' if active_page == 'skills' else '' }}">Навыки</a>
+        <a href="users" class="{{ 'active' if active_page == 'users' else '' }}">Пользователи</a>
+        <a href="docs" class="{{ 'active' if active_page == 'docs' else '' }}">Документация</a>
       </nav>
       {% endif %}
     </div>
@@ -294,7 +294,7 @@
       {% block header_actions %}{% endblock %}
       {% if not remote %}
       <form method="post" action="logout">
-        <button type="submit" class="icon-btn" title="Sign out">⎋</button>
+        <button type="submit" class="icon-btn" title="Выйти">⎋</button>
       </form>
       {% endif %}
     </div>
@@ -302,7 +302,7 @@
 
   <main>
     {% if message %}<div class="banner ok">{{ message }}</div>{% endif %}
-    {% if error %}<div class="banner err">Error: {{ error }}</div>{% endif %}
+    {% if error %}<div class="banner err">Ошибка: {{ error }}</div>{% endif %}
 
     {% block content %}{% endblock %}
   </main>

@@ -10,6 +10,8 @@ Two long-running processes share one on-disk directory
 
 Two kinds of skill bundle can live in that directory side by side:
 
-- **Code skills** — `manifest.json` + a Python entrypoint module.
+- **Code skills** — a single self-describing `.py` file (its one
+  top-level function's name/docstring/type hints are the manifest; no
+  separate `manifest.json`).
 - **Doc skills** — `SKILL.md` (this skill is one) + any supporting
   files, following the same shape as Claude's "Agent Skills" format.

@@ -20,29 +20,29 @@
 <button type="button" class="icon-btn" onclick="addressDialog.showModal()">
   <span>⚙</span><span class="path">{{ shared_dir }}</span>
 </button>
-<button type="button" class="fab" title="Add skill" onclick="addSkillDialog.showModal()">+</button>
+<button type="button" class="fab" title="Добавить навык" onclick="addSkillDialog.showModal()">+</button>
 {% endblock %}
 
 {% block content %}
-<p class="section-title">Skills</p>
+<p class="section-title">Навыки</p>
 <div class="card">
   {% if tools %}
     {% for t in tools %}
     <div class="skill-row">
       <span class="skill-name">{{ t.name }}</span>
-      <span class="skill-kind kind-{{ t.kind }}">{{ "SKILL.md" if t.kind == "doc" else "code" }}</span>
+      <span class="skill-kind kind-{{ t.kind }}">{{ "SKILL.md" if t.kind == "doc" else "код" }}</span>
       <span class="skill-version">v{{ t.version }}</span>
       <span class="skill-desc">{{ t.description }}</span>
-      <form method="post" action="tools/{{ t.name }}/delete" onsubmit="return confirm('Remove {{ t.name }} for all users?');">
-        <button type="submit" class="remove-btn">Remove</button>
+      <form method="post" action="tools/{{ t.name }}/delete" onsubmit="return confirm('Удалить {{ t.name }} для всех пользователей?');">
+        <button type="submit" class="remove-btn">Удалить</button>
       </form>
     </div>
     {% endfor %}
   {% else %}
     <div class="empty-state">
       <div class="glyph">＋</div>
-      <div>No skills installed yet.</div>
-      <button type="button" class="cta" onclick="addSkillDialog.showModal()">Add your first skill</button>
+      <div>Навыки пока не установлены.</div>
+      <button type="button" class="cta" onclick="addSkillDialog.showModal()">Добавить первый навык</button>
     </div>
   {% endif %}
 </div>
@@ -52,32 +52,32 @@
 <dialog id="addressDialog">
   {% if remote %}
   <div class="dialog-body">
-    <h3>Main host</h3>
-    <p>This is a child-admin relay: skills are installed on the main host below, not stored locally. To point this relay at a different main host, restart it with <code>scripts/run_child_admin.sh</code> and a different address.</p>
+    <h3>Основной хост</h3>
+    <p>Это релей дочернего админа: навыки устанавливаются на основном хосте ниже, а не хранятся локально. Чтобы направить этот релей на другой основной хост, перезапустите его через <code>scripts/run_child_admin.sh</code> с другим адресом.</p>
     <label>
-      Address
+      Адрес
       <input type="text" value="{{ shared_dir }}" readonly />
     </label>
     <div class="dialog-actions">
-      <button type="button" class="btn ghost" onclick="addressDialog.close()">Close</button>
+      <button type="button" class="btn ghost" onclick="addressDialog.close()">Закрыть</button>
     </div>
   </div>
   {% else %}
   <form method="post" action="config/shared-dir" class="dialog-body">
-    <h3>Shared tools directory</h3>
-    <p>Skills installed here are loaded by the MCP server and shared with every user of this server.</p>
+    <h3>Общая директория с навыками</h3>
+    <p>Навыки, установленные здесь, загружаются MCP-сервером и становятся доступны всем пользователям этого сервера.</p>
     <label>
-      Path
+      Путь
       <input type="text" name="path" value="{{ shared_dir }}" required />
     </label>
     <label>
-      Bitbucket host-lookup script path
-      <input type="text" name="bitbucket_script_path" value="{{ bitbucket_script_path }}" placeholder="/opt/scripts/resolve_host.py" />
+      Базовый адрес Bitbucket
+      <input type="text" name="bitbucket_base_url" value="{{ bitbucket_base_url }}" placeholder="https://bitbucket.example.org" />
     </label>
-    <p style="margin-top:-0.5rem">Used by <code>notebooks/connect_to_mcp.ipynb</code> — see the "Users" tab.</p>
+    <p style="margin-top:-0.5rem">Используется <code>notebooks/connect_to_mcp.ipynb</code> — см. вкладку «Пользователи».</p>
     <div class="dialog-actions">
-      <button type="button" class="btn ghost" onclick="addressDialog.close()">Cancel</button>
-      <button type="submit" class="btn primary">Save</button>
+      <button type="button" class="btn ghost" onclick="addressDialog.close()">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
     </div>
   </form>
   {% endif %}
@@ -85,19 +85,19 @@
 
 <dialog id="addSkillDialog">
   <form method="post" action="tools/upload" enctype="multipart/form-data" class="dialog-body">
-    <h3>Add a skill</h3>
-    <p>Upload a <code>.zip</code> containing either <code>manifest.json</code> and the entrypoint module it references, or a <code>SKILL.md</code> (with its supporting files) for a documentation-style skill. See the "Docs" tab for both formats.</p>
+    <h3>Добавить навык</h3>
+    <p>Загрузите <code>.zip</code>, содержащий либо один <code>.py</code>-файл с одной функцией (code-навык — manifest.json не нужен, функция сама себе манифест), либо <code>SKILL.md</code> (с сопутствующими файлами) для навыка в формате документации. Оба формата описаны на вкладке «Документация».</p>
     <label>
-      Archive
+      Архив
       <input type="file" name="archive" accept=".zip" required />
     </label>
     <label class="check">
       <input type="checkbox" name="overwrite" value="true" />
-      overwrite if it already exists
+      перезаписать, если уже существует
     </label>
     <div class="dialog-actions">
-      <button type="button" class="btn ghost" onclick="addSkillDialog.close()">Cancel</button>
-      <button type="submit" class="btn primary">Install &amp; share with all users</button>
+      <button type="button" class="btn ghost" onclick="addSkillDialog.close()">Отмена</button>
+      <button type="submit" class="btn primary">Установить и поделиться со всеми</button>
     </div>
   </form>
 </dialog>

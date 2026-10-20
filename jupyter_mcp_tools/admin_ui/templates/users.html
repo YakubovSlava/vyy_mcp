@@ -1,20 +1,20 @@
 {% extends "base.html" %}
 
-{% block title_suffix %} — Users{% endblock %}
+{% block title_suffix %} — Пользователи{% endblock %}
 
 {% block content %}
-<p class="section-title">Users</p>
+<p class="section-title">Пользователи</p>
 <div class="card">
   {% if end_users %}
     {% for u in end_users %}
     <div class="skill-row">
       <span class="skill-name">{{ u.username }}</span>
-      <span class="skill-desc">first seen: {{ u.first_seen }} · last seen: {{ u.last_seen }}</span>
+      <span class="skill-desc">впервые замечен: {{ u.first_seen }} · последний раз: {{ u.last_seen }}</span>
     </div>
     {% endfor %}
   {% else %}
     <div class="empty-state">
-      <div>No users connected yet. Distribute <code>notebooks/connect_to_mcp.ipynb</code> to get started.</div>
+      <div>Пока ни один пользователь не подключился. Раздайте <code>notebooks/connect_to_mcp.ipynb</code>, чтобы начать.</div>
     </div>
   {% endif %}
 </div>

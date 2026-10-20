@@ -47,12 +47,12 @@ def test_registered_user_shows_up_in_admin_ui(client):
 
     r = client.get("/users")
     assert "dave.jones" in r.text
-    assert "No users connected yet" not in r.text
+    assert "Пока ни один пользователь не подключился" not in r.text
 
 
 def test_no_users_yet_shows_empty_state(client):
     r = client.get("/users")
-    assert "No users connected yet" in r.text
+    assert "Пока ни один пользователь не подключился" in r.text
 
 
 def test_users_page_requires_admin_login(app_module):

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
 <head>
   {% if self_correct %}
   <script>
@@ -16,7 +16,7 @@
   {% endif %}
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>MJApp (Lab edition) — Sign in</title>
+  <title>MJApp (Lab edition) — Вход</title>
   <style>
     :root {
       --mj-blue: #2766ED;
@@ -102,18 +102,18 @@
     <div class="logo"><span class="mj">MJ</span><span class="rest">App</span></div>
     <div class="edition">(Lab edition)</div>
 
-    {% if error %}<div class="banner err">Incorrect username or password.</div>{% endif %}
+    {% if error %}<div class="banner err">Неверный логин или пароль.</div>{% endif %}
 
     <form method="post" action="login">
       <label>
-        Username
+        Логин
         <input type="text" name="username" autocomplete="username" required autofocus />
       </label>
       <label>
-        Password
+        Пароль
         <input type="password" name="password" autocomplete="current-password" required />
       </label>
-      <button type="submit" class="btn primary">Sign in</button>
+      <button type="submit" class="btn primary">Войти</button>
     </form>
   </div>
 </body>

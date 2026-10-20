@@ -151,14 +151,14 @@ def _render(request: Request, **extra):
         tools, remote_error = _remote_list_tools()
         error = error or remote_error
         address_label = MAIN_HOST
-        bitbucket_script_path = ""
+        bitbucket_base_url = ""
     else:
         config = load_config()
         shared_dir = config.shared_dir_path
         shared_dir.mkdir(parents=True, exist_ok=True)
         tools = [registry.manifest_to_dict(m) for m in registry.list_tools(shared_dir)]
         address_label = str(shared_dir)
-        bitbucket_script_path = config.bitbucket_script_path or ""
+        bitbucket_base_url = config.bitbucket_base_url or ""
 
     return templates.TemplateResponse(
         request,
@@ -167,7 +167,7 @@ def _render(request: Request, **extra):
             "remote": bool(MAIN_HOST),
             "active_page": "skills",
             "shared_dir": address_label,
-            "bitbucket_script_path": bitbucket_script_path,
+            "bitbucket_base_url": bitbucket_base_url,
             "tools": tools,
             "message": message,
             "error": error,
@@ -259,15 +259,15 @@ def docs_page(request: Request, _admin: str | None = Depends(require_admin_page)
 def set_shared_dir(
     request: Request,
     path: str = Form(...),
-    bitbucket_script_path: str = Form(""),
+    bitbucket_base_url: str = Form(""),
     _admin: str | None = Depends(require_admin_page),
 ):
     if MAIN_HOST:
         raise HTTPException(status_code=403, detail="The shared directory is managed on the main host only.")
     new_path = Path(path).expanduser()
     new_path.mkdir(parents=True, exist_ok=True)
-    save_config(AppConfig(shared_dir=str(new_path), bitbucket_script_path=bitbucket_script_path or None))
-    return _render(request, message=f"Shared tools directory set to {new_path}")
+    save_config(AppConfig(shared_dir=str(new_path), bitbucket_base_url=bitbucket_base_url or None))
+    return _render(request, message=f"Общая директория с навыками установлена на {new_path}")
 
 
 @app.post("/api/users/register")
@@ -304,14 +304,14 @@ async def upload_tool(
                     insecure=INSECURE_TLS,
                 )
             except curl_client.CurlError as exc:
-                return _render(request, error=f"Could not reach main host: {exc}")
+                return _render(request, error=f"Не удалось подключиться к основному хосту: {exc}")
             try:
                 payload = json.loads(resp.text)
             except json.JSONDecodeError:
-                return _render(request, error=f"Main host returned HTTP {resp.status} with an unreadable body.")
+                return _render(request, error=f"Основной хост вернул HTTP {resp.status} с нечитаемым телом ответа.")
             if resp.status != 200:
-                return _render(request, error=payload.get("error", f"Main host returned HTTP {resp.status}."))
-            return _render(request, message=f"Installed '{payload['name']}' v{payload['version']} for all users.")
+                return _render(request, error=payload.get("error", f"Основной хост вернул HTTP {resp.status}."))
+            return _render(request, message=f"«{payload['name']}» v{payload['version']} установлен для всех пользователей.")
 
         config = load_config()
         shared_dir = config.shared_dir_path
@@ -319,7 +319,7 @@ async def upload_tool(
             manifest = registry.install_tool(tmp_path, shared_dir, overwrite=overwrite)
         except (ToolValidationError, ToolAlreadyExistsError) as exc:
             return _render(request, error=str(exc))
-        return _render(request, message=f"Installed '{manifest.name}' v{manifest.version} for all users.")
+        return _render(request, message=f"«{manifest.name}» v{manifest.version} установлен для всех пользователей.")
     finally:
         tmp_path.unlink(missing_ok=True)
 
@@ -335,19 +335,19 @@ def delete_tool(request: Request, name: str, _admin: str | None = Depends(requir
                 insecure=INSECURE_TLS,
             )
         except curl_client.CurlError as exc:
-            return _render(request, error=f"Could not reach main host: {exc}")
+            return _render(request, error=f"Не удалось подключиться к основному хосту: {exc}")
         if resp.status == 404:
             raise HTTPException(status_code=404, detail=f"tool '{name}' is not installed on the main host")
         if resp.status != 200:
-            return _render(request, error=f"Main host returned HTTP {resp.status}.")
-        return _render(request, message=f"Removed '{name}' for all users.")
+            return _render(request, error=f"Основной хост вернул HTTP {resp.status}.")
+        return _render(request, message=f"«{name}» удалён для всех пользователей.")
 
     config = load_config()
     try:
         registry.remove_tool(config.shared_dir_path, name)
     except ToolNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return _render(request, message=f"Removed '{name}' for all users.")
+    return _render(request, message=f"«{name}» удалён для всех пользователей.")
 
 
 # --- JSON API -----------------------------------------------------------

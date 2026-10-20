@@ -44,12 +44,13 @@ available to every user of the server — without restarting anything.
   existing MCP client docs and tutorials (and the user's own "fastmcp"
   framing) assume, so the project targets that for now. Revisit this pin
   once the 2.x ecosystem settles (see Open questions).
-- **Input schema comes from Python type hints, not `manifest.json`.**
+- **Input schema comes from Python type hints, not a manifest file.**
   FastMCP's `add_tool` infers the JSON schema straight from the
   entrypoint function's signature (pydantic-style), which is more accurate
   than hand-written JSON Schema and avoids keeping two schemas in sync.
-  `manifest.json`'s `parameters` field is kept for human-readable
-  documentation only.
+  This observation is also what made dropping `manifest.json` entirely
+  possible later (see the "code skills need no manifest.json" entry
+  below) — the schema was never actually read from it.
 - **Admin UI is reached through `jupyter-server-proxy`'s *generic* port
   proxy** (`.../user/<name>/proxy/<port>/`), not a named
   `jupyter_serverproxy_servers` entry point. We deliberately don't
@@ -208,21 +209,29 @@ available to every user of the server — without restarting anything.
   unauthenticated requests, no code-guessing surface) at the cost of no
   per-recipient tracking of *who was sent* a link — only who's actually
   run it or called the MCP server shows up in `users.json`.
-- **The Bitbucket host-lookup script is a pluggable, unwritten
-  dependency**, not something this project implements. The notebook
-  exists specifically so the main host's address never has to be
-  hardcoded anywhere a user might copy-paste a stale value from: at
-  connect time, it invokes `BITBUCKET_SCRIPT_PATH` (baked in at
-  generation time from `scripts/build_connect_notebook.py`'s second
-  argument) — a script, provided by whoever manages the org's Bitbucket
-  credentials/API, that takes a username (argv) and password (stdin) and
-  prints the current address to stdout. We only define and document the
-  calling convention; we don't ship or validate that script's contents
-  (unlike tool archives, there's no `ast`-based structural check here —
-  it's an admin-trusted external dependency, not user-uploaded content).
-  `scripts/mock_resolve_host.py` is a stand-in that ignores credentials
-  and always returns `http://127.0.0.1:8765`, for exercising the flow
-  before the real script exists.
+- **The Bitbucket host lookup calls Bitbucket's REST API directly from
+  the notebook, not an external pluggable script.** Originally this was
+  a deliberately unwritten, pluggable dependency (`BITBUCKET_SCRIPT_PATH`,
+  an admin-provided script taking a username/password and printing the
+  address) — changed per explicit request ("сделай так, чтобы код я прям
+  вставил по извлечению данных с bitbucket": give real code to paste in,
+  not a placeholder). `notebook_builder.py`'s lookup cell now does a
+  real `requests.get(...)` against a Bitbucket Server/Data Center REST
+  endpoint (`<base>/rest/api/1.0/projects/<project>/repos/<repo>/raw/<path>`)
+  with Basic Auth, assuming self-hosted Bitbucket Server/Data Center
+  (not Bitbucket Cloud, whose API shape differs) since that's the far
+  more common setup behind an internal JupyterHub. `BITBUCKET_PROJECT`/
+  `BITBUCKET_REPO`/`BITBUCKET_FILE_PATH` are baked in with placeholder
+  values (`"PROJ"`/`"mcp-config"`/`"host.txt"`) the admin hand-edits
+  directly in the notebook to point at wherever the org actually keeps
+  the current host address — same "bake in constants, hand-edit if they
+  change" pattern `MAIN_HOST` already used. `AppConfig.bitbucket_base_url`
+  (renamed from `bitbucket_script_path`) now only holds the Bitbucket
+  instance's base URL, shown in the admin UI purely as a reminder of
+  what's baked into the distributed notebook — it isn't read at request
+  time by anything. `scripts/mock_resolve_host.py` (the old script-based
+  flow's local stand-in) was deleted; there's no script to stand in for
+  anymore.
 - **MCP user logging only works for `streamable-http`, not `stdio`.**
   `stdio` transport has no network identity to log in the first place —
   it's a local subprocess the MCP client spawns itself, so "which remote
@@ -310,18 +319,38 @@ available to every user of the server — without restarting anything.
 
 - **Doc skills are a second bundle kind, detected by presence rather than
   an explicit "kind" field.** A skill folder/archive is either a code
-  skill (`manifest.json` at its root) or a doc skill (`SKILL.md`/
+  skill (a single `.py` file at its root) or a doc skill (`SKILL.md`/
   `skill.md` at its root) — `registry._validate_archive`/`_load_installed`
-  branch on which file exists rather than requiring an upload to declare
-  its kind up front. Chosen because Claude's "Agent Skills" convention
-  already uses `SKILL.md`'s mere presence as the signal, and because it
-  means an existing manifest.json-based skill archive needs no migration
-  — nothing about it changes. `common/doc_skill.py`'s `DocSkillManifest`
-  and `common/manifest.py`'s `Manifest` both expose a `.kind` property
-  (`"doc"`/`"code"`) purely for the admin UI to label them with; it isn't
-  used anywhere in the validation/dispatch logic itself, which stays
-  presence-based throughout (`registry.AnyManifest = Manifest |
-  DocSkillManifest`).
+  branch on which exists rather than requiring an upload to declare its
+  kind up front. Chosen because Claude's "Agent Skills" convention
+  already uses `SKILL.md`'s mere presence as the signal. `common/doc_skill.py`'s
+  `DocSkillManifest` and `common/manifest.py`'s `Manifest` both expose a
+  `.kind` property (`"doc"`/`"code"`) purely for the admin UI to label
+  them with; it isn't used anywhere in the validation/dispatch logic
+  itself, which stays presence-based throughout (`registry.AnyManifest =
+  Manifest | DocSkillManifest`).
+- **Code skills need no `manifest.json` at all — the function is its own
+  manifest.** Per explicit request ("Модуль с документацией выглядит
+  некрасиво. Сделай так, чтобы нам не нужны были manifest json" — the
+  separate JSON file was ugly/redundant ceremony around a single
+  function). `common/manifest.py` now derives everything a `manifest.json`
+  used to declare straight from the single `.py` file's AST: the
+  function's **name** (must match the same `NAME_RE` as before — an
+  ordinary snake_case name already does), its **docstring** (required —
+  becomes `description`), and an optional module-level `__version__ =
+  "..."` string literal (defaults to `"1.0.0"`). `entrypoint` is computed
+  as `f"{module_stem}:{func.name}"` instead of being declared explicitly.
+  The archive/folder must contain exactly one top-level `.py` file with
+  exactly one top-level function — both now validated with a clear error
+  message, since there's no manifest left to disambiguate which file/
+  function was meant. The `parameters` field is simply gone: it was
+  already documentation-only dead weight (see "Input schema comes from
+  Python type hints" above) that nothing ever read. No backwards
+  compatibility shim for old `manifest.json`-based archives was added —
+  per this project's conventions, and because every existing example
+  (`echo_tool`, `setup_files_tool`) already had a docstring on its single
+  function, so migrating them was just deleting the now-redundant
+  `manifest.json` file.
 - **A doc skill's `description` frontmatter field becomes the MCP tool's
   own `description`**, not just documentation. This is the entire point
   of the feature per explicit request — "на уровне инструмента должно
@@ -362,9 +391,7 @@ available to every user of the server — without restarting anything.
 <shared_dir>/
   tools/
     <name>/
-      manifest.json
-      <module>.py
-      ... (any other files from the archive)
+      <module>.py           # self-describing: one function, name/docstring/__version__
     <doc-skill-name>/
       SKILL.md              (or skill.md)
       ... (any other supporting files/folders)
@@ -397,9 +424,10 @@ available to every user of the server — without restarting anything.
   grant any tool access by itself, since the MCP server itself has no
   per-user authorization, only per-user logging.
 - Distributing `notebooks/connect_to_mcp.ipynb` means **anyone with the
-  file** can see `MAIN_HOST` and the local path to the Bitbucket script —
-  neither is secret by itself, but it does mean the file shouldn't be
-  posted somewhere wholly public if `MAIN_HOST` isn't meant to be.
+  file** can see `MAIN_HOST` and the Bitbucket project/repo/path the host
+  address is read from — none of this is secret by itself, but it does
+  mean the file shouldn't be posted somewhere wholly public if `MAIN_HOST`
+  isn't meant to be.
 - `X-MCP-User` is a plain, unverified header — any MCP client can claim
   to be any username. The "Users" list reflects *what clients say*, not a
   verified identity.
