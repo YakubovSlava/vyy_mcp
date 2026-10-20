@@ -126,3 +126,35 @@ def test_manifest_to_dict_works_for_doc_skill(tmp_path, shared_dir):
     d = registry.manifest_to_dict(manifest)
     assert d["name"] == "repo-explainer"
     assert "body" in d
+
+
+def test_update_doc_skill_description(tmp_path, shared_dir):
+    archive = _make_doc_skill_archive(tmp_path)
+    _install_doc_skill(archive, shared_dir)
+
+    manifest = registry.update_doc_skill_description(shared_dir, "repo-explainer", "New description.")
+    assert manifest.description == "New description."
+
+    tools = registry.list_tools(shared_dir)
+    assert tools[0].description == "New description."
+    # The body/files must survive the edit untouched.
+    assert tools[0].body == "# Repo explainer\n\nBody content."
+
+
+def test_update_doc_skill_description_missing_tool_raises(shared_dir):
+    with pytest.raises(ToolNotFoundError):
+        registry.update_doc_skill_description(shared_dir, "nope", "desc")
+
+
+def test_update_doc_skill_description_empty_raises(tmp_path, shared_dir):
+    archive = _make_doc_skill_archive(tmp_path)
+    _install_doc_skill(archive, shared_dir)
+    with pytest.raises(ToolValidationError, match="must not be empty"):
+        registry.update_doc_skill_description(shared_dir, "repo-explainer", "")
+
+
+def test_update_doc_skill_description_rejects_code_skill(make_archive, shared_dir):
+    archive = make_archive("greet", VALID_MODULE)
+    registry.install_tool(archive, shared_dir)
+    with pytest.raises(ToolValidationError, match="not a doc skill"):
+        registry.update_doc_skill_description(shared_dir, "greet", "desc")

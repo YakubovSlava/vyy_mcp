@@ -24,7 +24,13 @@ import zipfile
 from dataclasses import asdict
 from pathlib import Path
 
-from .doc_skill import DocSkillManifest, find_skill_md_name, validate_doc_skill_archive, validate_doc_skill_dir, write_meta
+from .doc_skill import (
+    DocSkillManifest,
+    find_skill_md_name,
+    validate_doc_skill_archive,
+    validate_doc_skill_dir,
+    write_meta,
+)
 from .manifest import Manifest, ToolValidationError, root_python_files, validate_archive, validate_dir
 
 AnyManifest = Manifest | DocSkillManifest
@@ -141,6 +147,29 @@ def remove_tool(shared_dir: Path, name: str) -> None:
     if not dest.exists():
         raise ToolNotFoundError(f"tool '{name}' is not installed")
     shutil.rmtree(dest)
+
+
+def update_doc_skill_description(shared_dir: Path, name: str, description: str) -> DocSkillManifest:
+    """Edit an already-installed doc skill's description in place.
+
+    Code skills have no equivalent — their description is the function's
+    own docstring, edited by editing the `.py` file directly (see
+    common/manifest.py); there's no separate description field to update
+    out of band for them.
+    """
+    if not description:
+        raise ToolValidationError("description must not be empty")
+
+    dest = tools_dir(shared_dir) / name
+    if not dest.exists():
+        raise ToolNotFoundError(f"tool '{name}' is not installed")
+
+    manifest = _load_installed(dest)
+    if not isinstance(manifest, DocSkillManifest):
+        raise ToolValidationError(f"'{name}' is not a doc skill — only a SKILL.md bundle's description can be edited")
+
+    write_meta(dest, description)
+    return DocSkillManifest(name=name, description=description, body=manifest.body, files=manifest.files)
 
 
 def manifest_to_dict(manifest: AnyManifest) -> dict:

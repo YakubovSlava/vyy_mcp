@@ -199,13 +199,13 @@ def _remote_list_tools() -> tuple[list[dict], str | None]:
         return [], "Main host returned a response that wasn't valid JSON."
 
 
-def _maybe_git_push(config: AppConfig, shared_dir: Path, skill_name: str) -> str | None:
-    """Best-effort git push of `shared_dir` after installing a skill.
+def _maybe_git_push(config: AppConfig, shared_dir: Path, commit_message: str) -> str | None:
+    """Best-effort git push of `shared_dir` after a skill install/delete/edit.
 
     Returns an error detail string if a push was attempted and failed,
     `None` otherwise — including when it's not configured at all (see
     AppConfig.git_push_username/git_push_password). Never raises: a
-    failed push must not block the skill install that triggered it.
+    failed push must not block the action that triggered it.
     """
     if not (config.git_push_username and config.git_push_password):
         return None
@@ -213,7 +213,7 @@ def _maybe_git_push(config: AppConfig, shared_dir: Path, skill_name: str) -> str
         shared_dir,
         username=config.git_push_username,
         password=config.git_push_password,
-        commit_message=f"Add skill '{skill_name}'",
+        commit_message=commit_message,
     )
 
 
@@ -445,7 +445,7 @@ async def upload_tool(
         except (ToolValidationError, ToolAlreadyExistsError) as exc:
             return _redirect_to_root(request, error=str(exc))
         message = f"«{manifest.name}» v{manifest.version} установлен для всех пользователей."
-        push_error = _maybe_git_push(config, shared_dir, manifest.name)
+        push_error = _maybe_git_push(config, shared_dir, f"Add skill '{manifest.name}'")
         if push_error:
             message += f" Внимание: git push не выполнен ({push_error})."
         return _redirect_to_root(request, message=message)
@@ -469,14 +469,74 @@ def delete_tool(request: Request, name: str, _admin: str | None = Depends(requir
             return _redirect_to_root(request, error=f"«{name}» не установлен на основном хосте (возможно, уже удалён).")
         if resp.status != 200:
             return _redirect_to_root(request, error=f"Основной хост вернул HTTP {resp.status}.")
-        return _redirect_to_root(request, message=f"«{name}» удалён для всех пользователей.")
+        message = f"«{name}» удалён для всех пользователей."
+        try:
+            payload = json.loads(resp.text)
+        except json.JSONDecodeError:
+            payload = {}
+        if payload.get("git_push_error"):
+            message += f" Внимание: git push на основном хосте не выполнен ({payload['git_push_error']})."
+        return _redirect_to_root(request, message=message)
 
     config = load_config()
+    shared_dir = config.shared_dir_path
     try:
-        registry.remove_tool(config.shared_dir_path, name)
+        registry.remove_tool(shared_dir, name)
     except ToolNotFoundError:
         return _redirect_to_root(request, error=f"«{name}» не установлен (возможно, уже удалён) — обновите страницу.")
-    return _redirect_to_root(request, message=f"«{name}» удалён для всех пользователей.")
+    message = f"«{name}» удалён для всех пользователей."
+    push_error = _maybe_git_push(config, shared_dir, f"Remove skill '{name}'")
+    if push_error:
+        message += f" Внимание: git push не выполнен ({push_error})."
+    return _redirect_to_root(request, message=message)
+
+
+@app.post("/tools/{name}/edit-description")
+def edit_doc_skill_description(
+    request: Request,
+    name: str,
+    description: str = Form(...),
+    _admin: str | None = Depends(require_admin_page),
+):
+    """Edits a doc skill's (SKILL.md bundle's) description in place — the
+    only skill metadata that's ever edited without re-uploading the whole
+    archive. Code skills have no equivalent: their description is the
+    function's own docstring, edited by editing the .py file directly."""
+    if MAIN_HOST:
+        try:
+            resp = curl_client.post(
+                f"{MAIN_HOST}/api/tools/{name}/edit-description",
+                CHILD_USER,
+                CHILD_PASSWORD,
+                fields={"description": description},
+                insecure=INSECURE_TLS,
+            )
+        except curl_client.CurlError as exc:
+            return _redirect_to_root(request, error=f"Не удалось подключиться к основному хосту: {exc}")
+        try:
+            payload = json.loads(resp.text)
+        except json.JSONDecodeError:
+            payload = {}
+        if resp.status != 200:
+            return _redirect_to_root(
+                request, error=payload.get("error", f"Основной хост вернул HTTP {resp.status}.")
+            )
+        message = f"Описание «{name}» обновлено."
+        if payload.get("git_push_error"):
+            message += f" Внимание: git push на основном хосте не выполнен ({payload['git_push_error']})."
+        return _redirect_to_root(request, message=message)
+
+    config = load_config()
+    shared_dir = config.shared_dir_path
+    try:
+        registry.update_doc_skill_description(shared_dir, name, description)
+    except (ToolValidationError, ToolNotFoundError) as exc:
+        return _redirect_to_root(request, error=str(exc))
+    message = f"Описание «{name}» обновлено."
+    push_error = _maybe_git_push(config, shared_dir, f"Edit skill '{name}' description")
+    if push_error:
+        message += f" Внимание: git push не выполнен ({push_error})."
+    return _redirect_to_root(request, message=message)
 
 
 # --- JSON API -----------------------------------------------------------
@@ -525,15 +585,33 @@ async def api_upload_tool(
     finally:
         tmp_path.unlink(missing_ok=True)
 
-    push_error = _maybe_git_push(config, shared_dir, manifest.name)
+    push_error = _maybe_git_push(config, shared_dir, f"Add skill '{manifest.name}'")
     return {"name": manifest.name, "version": manifest.version, "git_push_error": push_error}
 
 
 @app.post("/api/tools/{name}/delete")
 def api_delete_tool(name: str, _admin: str | None = Depends(require_admin_api)):
     config = load_config()
+    shared_dir = config.shared_dir_path
     try:
-        registry.remove_tool(config.shared_dir_path, name)
+        registry.remove_tool(shared_dir, name)
     except ToolNotFoundError as exc:
         return JSONResponse(status_code=404, content={"error": str(exc)})
-    return {"name": name}
+    push_error = _maybe_git_push(config, shared_dir, f"Remove skill '{name}'")
+    return {"name": name, "git_push_error": push_error}
+
+
+@app.post("/api/tools/{name}/edit-description")
+def api_edit_doc_skill_description(
+    name: str, description: str = Form(...), _admin: str | None = Depends(require_admin_api)
+):
+    config = load_config()
+    shared_dir = config.shared_dir_path
+    try:
+        registry.update_doc_skill_description(shared_dir, name, description)
+    except ToolNotFoundError as exc:
+        return JSONResponse(status_code=404, content={"error": str(exc)})
+    except ToolValidationError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    push_error = _maybe_git_push(config, shared_dir, f"Edit skill '{name}' description")
+    return {"name": name, "git_push_error": push_error}

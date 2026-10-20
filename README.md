@@ -369,6 +369,13 @@ of those paths>"` returns that specific file's content. See
 `examples/repo_explainer/` for a complete example and `mcp_server/server.py`'s
 `_make_doc_skill_tool` for the implementation.
 
+Once installed, an already-installed doc skill's description can be
+edited in place — "Редактировать" on its row in the Skills tab — without
+re-uploading the archive; the `SKILL.md` body and every other file in
+the bundle are left untouched, only `.skill_meta.json` changes. There's
+no equivalent for code skills: their description is the function's own
+docstring, edited by editing the `.py` file directly.
+
 ### Returning multiple files for a human to run themselves
 
 A skill's entrypoint can return any JSON-serializable value, not just a
@@ -397,15 +404,16 @@ The response is `{"message": "...", "files": [{"filename", "content",
 working skill using this pattern (zip it the same way as any other
 example: `python examples/build_archive.py setup_files_tool`).
 
-## Automatic git push on every skill install
+## Automatic git push on install, delete and description edits
 
 If the shared tools directory is **already a git repository with its
 remote configured** (this project never runs `git init`/`git remote add`
 for you), the main admin can set a git login/password in the "⚙"
 settings dialog on the Skills page — only there, only for the main host
 (a child relay has no shared directory of its own to push, see
-"Multi-host setup" above). Once set, every successful skill install runs
-`git add -A && git commit && git push` in that directory.
+"Multi-host setup" above). Once set, `git add -A && git commit && git
+push` runs in that directory after every **install**, **delete**, and
+**doc-skill description edit** (see below).
 
 - Push is **opt-in and best-effort**: if the username/password fields
   are empty, nothing happens; if a push fails (network, auth, ...), the

@@ -189,6 +189,18 @@
     }
     .remove-btn:hover { background: var(--danger-bg); }
 
+    .edit-btn {
+      border: none;
+      background: none;
+      color: var(--mj-blue);
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      padding: 0.3rem 0.5rem;
+      border-radius: 6px;
+    }
+    .edit-btn:hover { background: #EAF1FD; }
+
     .empty-state {
       padding: 3rem 1.5rem;
       text-align: center;
@@ -231,7 +243,7 @@
     .dialog-body label { display: block; font-size: 0.82rem; font-weight: 500; margin-bottom: 1rem; }
     .dialog-body label.check { display: flex; align-items: center; gap: 0.4rem; font-weight: 400; }
 
-    input[type=text], input[type=file] {
+    input[type=text], input[type=file], input[type=password], textarea {
       width: 100%;
       padding: 0.55rem 0.7rem;
       border: 1px solid var(--border);
@@ -240,6 +252,7 @@
       margin-top: 0.3rem;
       font-family: inherit;
     }
+    textarea { resize: vertical; }
 
     .dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem; }
     .btn {

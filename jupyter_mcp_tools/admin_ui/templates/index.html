@@ -43,6 +43,9 @@
       <span class="skill-kind kind-{{ t.kind }}">{{ "SKILL.md" if t.kind == "doc" else "код" }}</span>
       <span class="skill-version">v{{ t.version }}</span>
       <span class="skill-desc">{{ t.description }}</span>
+      {% if t.kind == "doc" %}
+      <button type="button" class="edit-btn" onclick="openEditDescription('{{ t.name }}', {{ t.description | tojson }})">Редактировать</button>
+      {% endif %}
       <form method="post" action="tools/{{ t.name }}/delete" onsubmit="return confirm('Удалить {{ t.name }} для всех пользователей?');">
         <button type="submit" class="remove-btn">Удалить</button>
       </form>
@@ -129,4 +132,28 @@
     </div>
   </form>
 </dialog>
+
+<dialog id="editDescriptionDialog">
+  <form method="post" id="editDescriptionForm" class="dialog-body">
+    <h3>Редактировать описание</h3>
+    <p>Навык: <strong id="editSkillName"></strong> — доступно только для навыков в формате <code>SKILL.md</code>.</p>
+    <label>
+      Описание
+      <textarea name="description" id="editDescriptionInput" rows="4" required></textarea>
+    </label>
+    <div class="dialog-actions">
+      <button type="button" class="btn ghost" onclick="editDescriptionDialog.close()">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+  function openEditDescription(name, description) {
+    document.getElementById("editDescriptionForm").action = "tools/" + encodeURIComponent(name) + "/edit-description";
+    document.getElementById("editSkillName").textContent = name;
+    document.getElementById("editDescriptionInput").value = description;
+    editDescriptionDialog.showModal();
+  }
+</script>
 {% endblock %}

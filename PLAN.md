@@ -541,6 +541,29 @@ available to every user of the server — without restarting anything.
   `/config/shared-dir` with that field left blank keeps the previously
   saved password rather than clearing it, the same "blank means
   unchanged" convention a secret-field form always needs.
+- **Deleting a skill triggers the same git push as installing one,
+  per explicit follow-up request** ("удаление данных также должно
+  вызывать это дело") — `_maybe_git_push()`'s signature changed from
+  taking just a skill name (always building an "Add skill '<name>'"
+  message internally) to taking the full commit message, so
+  `delete_tool`/`api_delete_tool` could reuse it with "Remove skill
+  '<name>'" instead of needing a second near-duplicate helper.
+- **Doc-skill description editing is a new, separate, narrow feature —
+  not a general "edit any skill" page.** Per explicit decision (asked
+  via AskUserQuestion: doc skills only, vs. also code skills via
+  docstring editing) — a doc skill's description lives in its own
+  `.skill_meta.json` sidecar with nothing else to touch, so editing it
+  in place is cheap and unambiguous; a code skill's description is the
+  function's own docstring inside the `.py` file, which this project
+  already treats as something edited by editing the file directly (see
+  the earlier "code skills need no manifest.json" entry) — adding a
+  second, UI-driven way to change the same text would just create two
+  sources of truth for it. New `registry.update_doc_skill_description()`
+  rejects a code-skill name with a clear error rather than silently
+  doing nothing. Wired through the same HTML (`POST
+  /tools/{name}/edit-description`) + JSON API (`/api/tools/{name}/edit-description`)
+  + child-relay-forwarding pattern every other mutating action already
+  uses, triggering the same git push on success.
 
 ## Shared tools directory layout
 

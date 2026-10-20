@@ -1038,3 +1038,43 @@
   multi-threaded process — accepted as a known tradeoff since skill
   installs aren't usually concurrent in practice. Full suite: 109/109
   passing.
+
+## 2026-10-20 (git push on delete too, and doc-skill description editing)
+
+- Per explicit request ("удаление данных также должно вызывать это
+  дело"), `delete_tool`/`api_delete_tool` now trigger the same git push
+  as installing a skill, with a "Remove skill '<name>'" commit message.
+  Generalized `_maybe_git_push()`'s third parameter from a bare skill
+  name (which only ever built an "Add skill" message) to the full
+  commit message, so both call sites could share it.
+- Per explicit request ("сделай редактирование... описания") and a
+  follow-up decision (asked via AskUserQuestion: doc skills only, since
+  a code skill's description is its function's own docstring, edited by
+  editing the `.py` file directly — not something this feature should
+  duplicate a second way to change), added
+  `registry.update_doc_skill_description()`: rewrites a doc skill's
+  `.skill_meta.json` sidecar in place, leaving `SKILL.md`'s body and
+  every other file untouched; rejects a code-skill name with a clear
+  `ToolValidationError` instead of silently doing nothing.
+- Wired a new `POST /tools/{name}/edit-description` (HTML, follows the
+  same main-host/child-relay-forwarding pattern as upload/delete) and
+  `POST /api/tools/{name}/edit-description` (JSON, what the relay's
+  `curl` call hits), both triggering the same git push on success.
+  `templates/index.html`: doc skills (kind `"doc"` only) get a new
+  "Редактировать" button next to "Удалить", opening a shared dialog
+  (`editDescriptionDialog`) whose form action/textarea value get set via
+  a small inline `openEditDescription(name, description)` JS function —
+  one dialog reused for every row rather than one per skill.
+  `templates/base.html` gained `textarea`/`input[type=password]` styling
+  (the latter existed in the markup already but had no CSS) and a new
+  `.edit-btn` class matching `.remove-btn`'s shape in blue instead of
+  red.
+- Tests: `test_registry.py` gained 4 tests for
+  `update_doc_skill_description` (happy path incl. body/files surviving
+  untouched, missing-tool, empty-description, rejects-code-skill).
+  `test_admin_api.py` gained `test_edit_doc_skill_description`,
+  `test_edit_description_rejects_code_skill`,
+  `test_edit_description_missing_skill_shows_error`, and
+  `test_delete_pushes_to_git_when_configured` (full delete → push round
+  trip against a real bare repo, mirroring the existing upload-pushes
+  test). Full suite: 117/117 passing.

@@ -321,3 +321,72 @@ def test_api_rejects_wrong_password(anon_client):
 def test_api_rejects_unknown_user(anon_client):
     r = anon_client.get("/api/tools", auth=("mallory", ADMIN_PASSWORD))
     assert r.status_code == 401
+
+
+def _doc_skill_archive_bytes(tmp_path, skill_md="# Doc skill\n\nBody.\n"):
+    path = tmp_path / "doc_upload.zip"
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("SKILL.md", skill_md)
+    return path.read_bytes()
+
+
+def test_edit_doc_skill_description(client, tmp_path):
+    data = _doc_skill_archive_bytes(tmp_path)
+    client.post(
+        "/tools/upload",
+        files={"archive": ("doc.zip", data, "application/zip")},
+        data={"name": "doc-skill", "description": "Original description."},
+    )
+
+    r = client.post("/tools/doc-skill/edit-description", data={"description": "Updated description."})
+    assert "обновлено" in r.text
+
+    from jupyter_mcp_tools.common.config import load_config
+    from jupyter_mcp_tools.common.registry import list_tools
+
+    tools = list_tools(load_config().shared_dir_path)
+    assert tools[0].description == "Updated description."
+
+
+def test_edit_description_rejects_code_skill(client, tmp_path):
+    data = _archive_bytes(tmp_path)
+    client.post("/tools/upload", files={"archive": ("greet.zip", data, "application/zip")})
+
+    r = client.post("/tools/greet/edit-description", data={"description": "x"})
+    assert "не является" in r.text or "not a doc skill" in r.text.lower()
+
+
+def test_edit_description_missing_skill_shows_error(client):
+    r = client.post("/tools/does-not-exist/edit-description", data={"description": "x"})
+    assert "не установлен" in r.text
+
+
+def test_delete_pushes_to_git_when_configured(client, tmp_path):
+    bare = tmp_path / "remote.git"
+    bare.mkdir()
+    _run("git", "init", "--bare", "-q", cwd=bare)
+
+    shared = tmp_path / "shared_clone"
+    _run("git", "clone", "-q", str(bare), str(shared), cwd=tmp_path)
+    _run("git", "config", "user.email", "test@example.com", cwd=shared)
+    _run("git", "config", "user.name", "Test", cwd=shared)
+    (shared / "README.md").write_text("init\n")
+    _run("git", "add", "-A", cwd=shared)
+    _run("git", "commit", "-q", "-m", "init", cwd=shared)
+    _run("git", "push", "-q", "origin", "HEAD", cwd=shared)
+
+    client.post(
+        "/config/shared-dir",
+        data={"path": str(shared), "git_push_username": "x", "git_push_password": "y"},
+    )
+
+    data = _archive_bytes(tmp_path)
+    client.post("/tools/upload", files={"archive": ("greet.zip", data, "application/zip")})
+    r = client.post("/tools/greet/delete")
+    assert "удалён" in r.text
+    assert "git push" not in r.text
+
+    log = subprocess.run(
+        ["git", "log", "--oneline", "-1"], cwd=bare, capture_output=True, text=True, check=True
+    ).stdout
+    assert "Remove skill" in log
