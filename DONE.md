@@ -1004,3 +1004,37 @@
   mocks `subprocess.run` to assert the actual argv of the push call
   (the `-c` flags present, and absent from the `add`/`commit` calls).
   Full suite: 107/107 passing.
+
+## 2026-10-20 (git push: emulate a real terminal instead of askpass/credential.helper)
+
+- The `-c credential.helper=`/`-c core.askpass=` fix from the previous
+  entry still didn't work on the user's real corporate Bitbucket Server
+  — same `terminal prompts disabled` error, meaning that environment
+  doesn't go through git's normal askpass/credential-helper path at
+  all. Per explicit request ("насильно эмулировал терминал... вставка
+  по тупому логина и пароля после git push"), replaced the whole
+  mechanism: `common/git_push.py`'s push step now runs under a real
+  pseudo-terminal via `pexpect.spawn`, waits for a prompt matching
+  `/username|password|логин|пароль/i`, and types the matching answer —
+  i.e. actually emulates a human typing into a terminal, rather than
+  any git-specific credential-injection mechanism. This is the one
+  approach guaranteed to behave the same way a manual `git push` by a
+  human would, regardless of whatever (if anything) is configured.
+- Refactored the pty logic into a standalone
+  `_run_under_pty_answering_credentials(argv, cwd, username, password)`
+  so it's testable against a fake prompting script, not just real git —
+  deleted the now-unused `scripts/git_askpass.py` and the `-c`
+  overrides entirely. Added `pexpect>=4.9` to `requirements.txt`.
+- Tests: rewrote `test_git_push.py`'s now-invalid
+  `test_push_overrides_credential_helper_and_askpass` (that mechanism
+  no longer exists) into `test_run_under_pty_answers_real_username_and_password_prompts`,
+  which spawns a tiny fake script that genuinely prints "Username for
+  ...: "/"Password for ...: " and reads replies via `input()` — this
+  exercises the actual pty read/write loop, which a local `file://` git
+  remote can't (it never prompts for credentials at all, confirmed by
+  hand in the previous entry). Added
+  `test_run_under_pty_reports_nonzero_exit` for the failure path. Noted
+  (not fixed, see PLAN.md) a `DeprecationWarning` about `forkpty()` in a
+  multi-threaded process — accepted as a known tradeoff since skill
+  installs aren't usually concurrent in practice. Full suite: 109/109
+  passing.

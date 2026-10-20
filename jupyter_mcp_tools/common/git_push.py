@@ -3,12 +3,18 @@
 Per explicit request: the shared directory is assumed to already be a git
 repository with its remote already configured — this project only runs
 `git add`/`commit`/`push` in it; it never creates the repo or touches the
-remote configuration itself. Credentials (plain HTTPS username/password)
-are supplied by the main admin via the settings dialog ("⚙" on the Skills
-page) and passed to `git push` through `GIT_ASKPASS`
-(`scripts/git_askpass.py`) rather than embedded in the push command/URL,
-so they never show up in `ps aux` output — only in this process's own
-environment, same exposure level as any other env-var-held secret.
+remote configuration itself.
+
+The push step runs under a real pseudo-terminal (via `pexpect`) and types
+the admin-configured username/password in response to git's own
+"Username for ..."/"Password for ..." prompts, exactly as if someone had
+typed them at an interactive terminal. This is a deliberate fallback per
+explicit request after `GIT_ASKPASS`/`core.askpass` (see git history)
+didn't work against this org's Bitbucket Server — some corporate git
+setups apparently don't go through the normal askpass/credential-helper
+path at all, so the only thing left that's guaranteed to work the same
+way a human's manual `git push` does is emulating that human at a real
+terminal.
 
 Pushing is best-effort: a failure here must never block the skill install
 that triggered it, only surface as a non-fatal detail in the response.
@@ -17,14 +23,74 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import subprocess
 from pathlib import Path
 
+import pexpect
+
 logger = logging.getLogger("jupyter_mcp_tools.git_push")
 
-ASKPASS_SCRIPT = Path(__file__).resolve().parent.parent.parent / "scripts" / "git_askpass.py"
-
 _TIMEOUT_SECONDS = 30
+_PROMPT_RE = re.compile(r"(username|password|логин|пароль)", re.IGNORECASE)
+
+
+def _run(shared_dir: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", "-C", str(shared_dir), *args],
+        capture_output=True,
+        text=True,
+        timeout=_TIMEOUT_SECONDS,
+    )
+
+
+def _run_under_pty_answering_credentials(
+    argv: list[str], *, cwd: Path, username: str, password: str, extra_env: dict[str, str] | None = None
+) -> str | None:
+    """Run `argv` attached to a pseudo-terminal and type `username`/
+    `password` in response to whatever "Username"/"Password" prompts it
+    shows, the same way a human at a real terminal would. Returns an
+    error string on failure, `None` on success (including when no prompt
+    ever showed up at all)."""
+    env = {**os.environ, **(extra_env or {})}
+    try:
+        child = pexpect.spawn(
+            argv[0],
+            argv[1:],
+            cwd=str(cwd),
+            env=env,
+            timeout=_TIMEOUT_SECONDS,
+            encoding="utf-8",
+            codec_errors="replace",
+        )
+    except pexpect.exceptions.ExceptionPexpect as exc:
+        return f"{argv[0]}: не удалось запустить псевдотерминал ({exc})"
+
+    try:
+        answers_sent = 0
+        while answers_sent < 2:
+            index = child.expect([_PROMPT_RE, pexpect.EOF, pexpect.TIMEOUT])
+            if index != 0:
+                break
+            prompt = child.after.lower()
+            if "pass" in prompt or "парол" in prompt:
+                child.sendline(password)
+            else:
+                child.sendline(username)
+            answers_sent += 1
+        child.expect(pexpect.EOF, timeout=_TIMEOUT_SECONDS)
+    except pexpect.exceptions.TIMEOUT:
+        output = (child.before or "").strip()
+        child.close(force=True)
+        logger.warning("%s timed out waiting for a prompt in %s: %s", argv[0], cwd, output)
+        return f"{argv[0]}: таймаут при ожидании ответа ({output[-300:]})" if output else f"{argv[0]}: таймаут"
+
+    output = (child.before or "").strip()
+    child.close()
+    if child.exitstatus not in (0, None):
+        logger.warning("%s failed in %s: %s", argv[0], cwd, output)
+        return f"{argv[0]}: {output[-500:]}"
+    return None
 
 
 def push_shared_dir(shared_dir: Path, *, username: str, password: str, commit_message: str) -> str | None:
@@ -36,58 +102,30 @@ def push_shared_dir(shared_dir: Path, *, username: str, password: str, commit_me
     if not (shared_dir / ".git").exists():
         return "общая директория не является git-репозиторием"
 
-    env = {
-        **os.environ,
-        "GIT_ASKPASS": str(ASKPASS_SCRIPT),
-        "GIT_PUSH_USERNAME": username,
-        "GIT_PUSH_PASSWORD": password,
-        "GIT_TERMINAL_PROMPT": "0",
-    }
-
-    def run(*args: str, credentialed: bool = False) -> subprocess.CompletedProcess:
-        # `credentialed=True` (the push itself) explicitly overrides
-        # `credential.helper` to nothing and `core.askpass` to our script
-        # via `-c`, rather than relying on the GIT_ASKPASS env var alone —
-        # a system-wide gitconfig with its own credential.helper (git
-        # credential manager, `cache`, `store`, ...) takes priority over
-        # GIT_ASKPASS and can fail/prompt on its own before our askpass
-        # is ever consulted, which is exactly the "terminal prompts
-        # disabled" failure this is fixing. `-c` options win over any
-        # config file, so this is the one override guaranteed to apply
-        # regardless of what's already configured on the host.
-        cfg = ["-c", "credential.helper=", "-c", f"core.askpass={ASKPASS_SCRIPT}"] if credentialed else []
-        return subprocess.run(
-            ["git", *cfg, "-C", str(shared_dir), *args],
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=_TIMEOUT_SECONDS,
-        )
-
     try:
-        run("add", "-A")
+        _run(shared_dir, "add", "-A")
         # `git commit` exits 1 (indistinguishable from a real failure by
         # exit code alone) when there's nothing staged, and the message
         # saying so is locale-dependent -- checking for staged changes
         # first avoids parsing that text in any language.
-        nothing_staged = run("diff", "--cached", "--quiet").returncode == 0
+        nothing_staged = _run(shared_dir, "diff", "--cached", "--quiet").returncode == 0
         if not nothing_staged:
-            commit = run("commit", "-m", commit_message)
+            commit = _run(shared_dir, "commit", "-m", commit_message)
             if commit.returncode != 0:
                 detail = (commit.stderr or commit.stdout).strip()
                 logger.warning("git commit failed in %s: %s", shared_dir, detail)
                 return f"git commit: {detail}"
-
-        push = run("push", credentialed=True)
-        if push.returncode != 0:
-            detail = (push.stderr or push.stdout).strip()
-            logger.warning("git push failed in %s: %s", shared_dir, detail)
-            return f"git push: {detail}"
     except subprocess.TimeoutExpired:
-        logger.warning("git push timed out in %s", shared_dir)
-        return "git push: превышено время ожидания"
+        logger.warning("git add/commit timed out in %s", shared_dir)
+        return "git commit: превышено время ожидания"
     except OSError as exc:
-        logger.warning("git push could not run in %s: %s", shared_dir, exc)
-        return f"git push: {exc}"
+        logger.warning("git add/commit could not run in %s: %s", shared_dir, exc)
+        return f"git commit: {exc}"
 
-    return None
+    return _run_under_pty_answering_credentials(
+        ["git", "-C", str(shared_dir), "push"],
+        cwd=shared_dir,
+        username=username,
+        password=password,
+        extra_env={"GIT_TERMINAL_PROMPT": "1"},
+    )

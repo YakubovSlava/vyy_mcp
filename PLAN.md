@@ -486,36 +486,46 @@ available to every user of the server — without restarting anything.
   non-breaking `git_push_error` field in that endpoint's response,
   which the relay's own HTML handler reads back out and appends to its
   own banner).
-- **Credentials for `git push` go through `GIT_ASKPASS`
-  (`scripts/git_askpass.py`), never embedded in the push command/URL
-  itself.** `ps aux` on a shared host shows every process's argv to
-  every local user; a plaintext password baked into the git command
-  line would leak there. The askpass script instead reads
-  `GIT_PUSH_USERNAME`/`GIT_PUSH_PASSWORD` from its own environment
-  (set only for the one `subprocess.run` call, not the parent process's
-  persistent environment) and answers git's username/password prompts
-  from that — visible only via `/proc/<pid>/environ` to the same user,
-  not via a process listing to everyone.
-- **The push step also forces `-c credential.helper=` and `-c
-  core.askpass=<script>` directly on the `git push` command line, not
-  just `GIT_ASKPASS` in the environment.** Found from a real production
-  report: `GIT_ASKPASS` alone wasn't enough — a system-wide `gitconfig`
-  with its own `credential.helper` already configured (credential
-  manager, `cache`, `store`, ...) takes priority over `GIT_ASKPASS` and
-  can itself fail or attempt to prompt before our askpass script is
-  ever consulted, surfacing as `fatal: could not read Username ...:
-  terminal prompts disabled` — the exact symptom reported, with no
-  indication our askpass had even run. `-c` options on the command line
-  always win over anything in a config file, so overriding both there
-  (only on the push invocation — `add`/`commit` need no credentials at
-  all) is the one mechanism guaranteed to apply regardless of whatever's
-  already configured on the host. `test_push_overrides_credential_helper_and_askpass`
-  asserts this at the subprocess-argv level (mocking `subprocess.run` to
-  inspect the actual command), since a local `file://` test remote never
-  invokes a credential helper in the first place (confirmed by hand: a
-  helper that always fails still lets a `file://` push through
-  untouched) — there's no way to exercise the real failure end-to-end
-  without a live HTTPS git server.
+- **Credentials for `git push` are typed into a real pseudo-terminal
+  (`pexpect`) in response to git's own prompts, not passed via
+  `GIT_ASKPASS`/`credential.helper` — superseding both of those earlier
+  attempts.** First tried `GIT_ASKPASS` (a script reading credentials
+  from its own env, never the push command/URL, to avoid a `ps aux`
+  leak), then additionally forcing `-c credential.helper=` + `-c
+  core.askpass=<script>` directly on the push command line when a
+  system-wide `gitconfig`'s own `credential.helper` turned out to take
+  priority over the env var. Neither worked against a real corporate
+  Bitbucket Server in production — the user kept getting `fatal: could
+  not read Username ...: terminal prompts disabled` even after the `-c`
+  override, meaning something in that environment doesn't go through
+  the normal askpass/credential-helper path at all. Per explicit
+  request ("насильно эмулировать терминал ... вставлять логин, затем
+  пароль"), replaced both attempts with `_run_under_pty_answering_credentials()`:
+  spawns the command under a real pty via `pexpect.spawn`, waits for a
+  prompt matching `/username|password|логин|пароль/i`, and types the
+  matching answer — functionally identical to a human running `git
+  push` by hand and typing into the terminal when asked, which is the
+  one thing guaranteed to work the same way regardless of whatever
+  askpass/helper configuration (or lack of one) the host has. The
+  argument that's now truly impossible to fully exercise in a fast unit
+  test is a *real* credential-prompting remote; tests instead spawn a
+  tiny fake script that genuinely prints "Username for ...: "/"Password
+  for ...: " and reads replies, to exercise the actual read/write loop
+  rather than mocking it away.
+  Credentials still never touch argv (the password is `sendline()`'d
+  into the pty, not passed as a CLI argument), so the `ps aux` leak this
+  was always meant to avoid is still avoided either way.
+- **Known tradeoff: `pexpect.spawn()` uses `os.forkpty()`, which
+  Python's own `pty` module warns can deadlock "in a multi-threaded
+  process."** `uvicorn`/Starlette run sync route handlers (including
+  `upload_tool`) in a thread pool, so this app *is* multi-threaded.
+  Accepted as a known risk rather than engineered around (e.g. routing
+  the push through a dedicated subprocess-of-a-subprocess) — skill
+  installs are infrequent and not usually concurrent with each other in
+  practice, and the explicit request was specifically for the real-
+  terminal-emulation behavior; revisit if this actually causes a hang
+  in production rather than pre-emptively adding indirection for a
+  risk that hasn't materialized.
 - **The git password is configured only by the main admin, in the same
   "⚙" settings dialog as the shared directory**, per explicit request
   ("Логин и пароль... будут редактироваться только у главного админа в

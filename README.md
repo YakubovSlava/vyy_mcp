@@ -416,9 +416,14 @@ settings dialog on the Skills page — only there, only for the main host
   unchanged. It's written to `config.json` (chmod'd `0600`, same as
   `admins.json`) alongside the other data files — see "Where data files
   live" above.
-- Credentials are passed to `git push` through `GIT_ASKPASS`
-  (`scripts/git_askpass.py`), not embedded in the push URL/command, so
-  they never show up in `ps aux` output on a shared host.
+- The push itself runs attached to a real pseudo-terminal (via
+  `pexpect`) and types the configured username/password in response to
+  whatever "Username"/"Password" prompts git shows — the same way a
+  human running `git push` by hand would. `GIT_ASKPASS`/
+  `credential.helper` overrides were tried first but didn't work
+  against at least one real corporate Bitbucket Server setup (some
+  environments don't go through that path at all), so this is the
+  fallback that's guaranteed to behave the same way a manual push does.
 - A child relay's upload also triggers this: the main host pushes after
   installing, and a push failure is reported back through the relay's
   own success banner too.
