@@ -30,6 +30,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
+from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -111,6 +112,24 @@ def _relative_redirect(request: Request, target: str) -> str:
     segments = request.url.path.strip("/").split("/")
     up = max(len(segments) - 1, 0)
     return "../" * up + target
+
+
+def _redirect_to_root(request: Request, *, message: str | None = None, error: str | None = None) -> RedirectResponse:
+    """After a mutating POST (upload/delete/save-config), send the
+    browser back to the Skills page itself — not just render it inline
+    at the POST's own URL — passing the outcome along as a query param
+    for `index()` to show as a banner.
+
+    Per explicit request: previously these routes rendered `index.html`
+    directly without redirecting at all (to avoid an *absolute* redirect
+    escaping the proxy prefix — see PLAN.md). That's no longer needed:
+    `_relative_redirect()` below is already proven correct under a real
+    proxy (used by the login flow), so there's no reason not to use it
+    here too and land the user back on the actual list page.
+    """
+    params = {k: v for k, v in {"message": message, "error": error}.items() if v}
+    target = "." if not params else f".?{urlencode(params)}"
+    return RedirectResponse(_relative_redirect(request, target), status_code=303)
 
 
 @app.exception_handler(NotAuthenticated)
@@ -285,8 +304,13 @@ def logout(request: Request):
 
 
 @app.get("/", response_class=HTMLResponse)
-def index(request: Request, _admin: str | None = Depends(require_admin_page)):
-    return _render(request)
+def index(
+    request: Request,
+    message: str | None = None,
+    error: str | None = None,
+    _admin: str | None = Depends(require_admin_page),
+):
+    return _render(request, message=message, error=error)
 
 
 @app.get("/users", response_class=HTMLResponse)
@@ -315,7 +339,7 @@ def set_shared_dir(
     new_path = Path(path).expanduser()
     new_path.mkdir(parents=True, exist_ok=True)
     save_config(AppConfig(shared_dir=str(new_path), bitbucket_base_url=bitbucket_base_url or None))
-    return _render(request, message=f"Общая директория с навыками установлена на {new_path}")
+    return _redirect_to_root(request, message=f"Общая директория с навыками установлена на {new_path}")
 
 
 @app.post("/api/users/register")
@@ -352,22 +376,30 @@ async def upload_tool(
                     insecure=INSECURE_TLS,
                 )
             except curl_client.CurlError as exc:
-                return _render(request, error=f"Не удалось подключиться к основному хосту: {exc}")
+                return _redirect_to_root(request, error=f"Не удалось подключиться к основному хосту: {exc}")
             try:
                 payload = json.loads(resp.text)
             except json.JSONDecodeError:
-                return _render(request, error=f"Основной хост вернул HTTP {resp.status} с нечитаемым телом ответа.")
+                return _redirect_to_root(
+                    request, error=f"Основной хост вернул HTTP {resp.status} с нечитаемым телом ответа."
+                )
             if resp.status != 200:
-                return _render(request, error=payload.get("error", f"Основной хост вернул HTTP {resp.status}."))
-            return _render(request, message=f"«{payload['name']}» v{payload['version']} установлен для всех пользователей.")
+                return _redirect_to_root(
+                    request, error=payload.get("error", f"Основной хост вернул HTTP {resp.status}.")
+                )
+            return _redirect_to_root(
+                request, message=f"«{payload['name']}» v{payload['version']} установлен для всех пользователей."
+            )
 
         config = load_config()
         shared_dir = config.shared_dir_path
         try:
             manifest = registry.install_tool(tmp_path, shared_dir, overwrite=overwrite)
         except (ToolValidationError, ToolAlreadyExistsError) as exc:
-            return _render(request, error=str(exc))
-        return _render(request, message=f"«{manifest.name}» v{manifest.version} установлен для всех пользователей.")
+            return _redirect_to_root(request, error=str(exc))
+        return _redirect_to_root(
+            request, message=f"«{manifest.name}» v{manifest.version} установлен для всех пользователей."
+        )
     finally:
         tmp_path.unlink(missing_ok=True)
 
@@ -383,19 +415,19 @@ def delete_tool(request: Request, name: str, _admin: str | None = Depends(requir
                 insecure=INSECURE_TLS,
             )
         except curl_client.CurlError as exc:
-            return _render(request, error=f"Не удалось подключиться к основному хосту: {exc}")
+            return _redirect_to_root(request, error=f"Не удалось подключиться к основному хосту: {exc}")
         if resp.status == 404:
-            return _render(request, error=f"«{name}» не установлен на основном хосте (возможно, уже удалён).")
+            return _redirect_to_root(request, error=f"«{name}» не установлен на основном хосте (возможно, уже удалён).")
         if resp.status != 200:
-            return _render(request, error=f"Основной хост вернул HTTP {resp.status}.")
-        return _render(request, message=f"«{name}» удалён для всех пользователей.")
+            return _redirect_to_root(request, error=f"Основной хост вернул HTTP {resp.status}.")
+        return _redirect_to_root(request, message=f"«{name}» удалён для всех пользователей.")
 
     config = load_config()
     try:
         registry.remove_tool(config.shared_dir_path, name)
     except ToolNotFoundError:
-        return _render(request, error=f"«{name}» не установлен (возможно, уже удалён) — обновите страницу.")
-    return _render(request, message=f"«{name}» удалён для всех пользователей.")
+        return _redirect_to_root(request, error=f"«{name}» не установлен (возможно, уже удалён) — обновите страницу.")
+    return _redirect_to_root(request, message=f"«{name}» удалён для всех пользователей.")
 
 
 # --- JSON API -----------------------------------------------------------

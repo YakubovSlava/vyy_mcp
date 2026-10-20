@@ -126,21 +126,22 @@ def test_form_actions_are_relative(client):
     assert 'action="config/shared-dir"' in r.text
 
 
-def test_trailing_slash_never_triggers_a_redirect(client, tmp_path):
+def test_trailing_slash_never_triggers_a_broken_redirect(client, tmp_path):
     # Starlette's own `redirect_slashes` issues an *absolute* Location
     # (scheme+host+path) with zero proxy-prefix awareness — observed in
     # production as a proxied upload getting redirected straight to the
     # domain root, dropping the whole /user/<name>/proxy/<port> prefix.
     # It must be disabled, and StripTrailingSlashMiddleware must handle
     # the slash itself, so a proxy that happens to forward one never
-    # produces any redirect at all (200, not 307) — see main.py.
+    # triggers *that* redirect (our own relative one below is fine).
     data = _archive_bytes(tmp_path)
     r = client.post(
         "/tools/upload/",
         files={"archive": ("greet.zip", data, "application/zip")},
         follow_redirects=False,
     )
-    assert r.status_code == 200
+    assert r.status_code == 303
+    assert r.headers["location"].startswith(".")  # relative, never absolute
 
     r = client.get("/users/", follow_redirects=False)
     assert r.status_code == 200
@@ -149,26 +150,34 @@ def test_trailing_slash_never_triggers_a_redirect(client, tmp_path):
     assert r.status_code == 200
 
 
-def test_self_correct_script_only_on_actual_root(client, tmp_path):
-    # index.html's trailing-slash self-correct script is also served as
-    # the direct (non-redirected) response body for every other mutating
-    # route's POST, which leaves the address bar on *that* route's own
-    # URL — never ending in "/". If the script isn't gated to only the
-    # real "GET /" case, it wrongly re-navigates (GET) to that same path
-    # plus "/", which 405s since those routes are POST-only. Reported in
-    # production as a delete/upload/save action redirecting to a
+def test_post_routes_redirect_to_root_with_banner(client, tmp_path):
+    # Mutating POSTs (upload/delete/save-config) redirect back to the
+    # Skills page itself with the outcome as a query param, per explicit
+    # request, rather than rendering index.html inline at the POST's own
+    # URL. That inline rendering used to leave the trailing-slash
+    # self-correct script (meant only for GET /) running against a URL
+    # that never ends in "/", which it then "corrected" with its own GET
+    # to that path + "/" — 405ing, since these are POST-only routes.
+    # Reported in production as delete/upload/save redirecting to a
     # "Method Not Allowed" page.
-    assert "location.replace" in client.get("/").text
+    r = client.post("/tools/does-not-exist/delete", follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"].startswith(".")
 
-    r = client.post("/tools/does-not-exist/delete")
-    assert "location.replace" not in r.text
+    r = client.post("/tools/does-not-exist/delete")  # follows the redirect
+    assert "не установлен" in r.text
+    assert "location.replace" in r.text  # back on the real root page
 
     data = _archive_bytes(tmp_path)
-    r = client.post("/tools/upload", files={"archive": ("greet.zip", data, "application/zip")})
-    assert "location.replace" not in r.text
+    r = client.post(
+        "/tools/upload", files={"archive": ("greet.zip", data, "application/zip")}, follow_redirects=False
+    )
+    assert r.status_code == 303
+    assert r.headers["location"].startswith(".")
 
-    r = client.post("/config/shared-dir", data={"path": str(tmp_path)})
-    assert "location.replace" not in r.text
+    r = client.post("/config/shared-dir", data={"path": str(tmp_path)}, follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"].startswith(".")
 
 
 def test_login_page_loads(anon_client):

@@ -842,3 +842,40 @@
   reproducing the reported sequence (GET / has the script; POST
   `/tools/{name}/delete`, `/tools/upload`, `/config/shared-dir` do not).
   Full suite: 98/98 passing.
+
+## 2026-10-20 (mutating actions now redirect back to the Skills page)
+
+- Per explicit request ("ты как бы не редиректишь на основную ... после
+  удаления и добавления"), `/tools/upload`, `/tools/{name}/delete`, and
+  `/config/shared-dir` now 303-redirect back to `.` (the Skills page)
+  with the outcome passed as a `message`/`error` query param, instead of
+  rendering `index.html` directly at the POST's own URL with no
+  redirect at all (the design from the 2026-10-19 "page split" entry,
+  chosen back then specifically to avoid an absolute redirect escaping
+  the proxy prefix). That concern is already solved: `_relative_redirect()`
+  — proven correct under a real proxy by the `/login` flow, which
+  already uses exactly this "bounce back after a successful POST"
+  pattern — needed no changes to reuse here. Added `_redirect_to_root()`
+  in `admin_ui/main.py`; `index()` now accepts optional `message`/`error`
+  query params.
+- This also fully closes out the self-correct-script-fires-on-a-POST-
+  response bug fixed two entries above: `_render()` (and therefore
+  `index.html`'s self-correct script) is now *only* ever reached via
+  `GET /`, so there's no longer an inline-rendered non-root page for the
+  script to misfire against at all — `self_correct` is unconditionally
+  true in practice now, not just correctly gated.
+- Updated `test_trailing_slash_never_triggers_a_redirect` (now expects
+  303 to a relative target instead of 200) and
+  `test_self_correct_script_only_on_actual_root` → renamed
+  `test_post_routes_redirect_to_root_with_banner`, verifying the full
+  redirect-then-render round trip for all three routes. Verified against
+  a real running process with `curl` end-to-end too (not just
+  `TestClient`): `POST /tools/nope/delete` → `303` with
+  `Location: ../../.?error=...` (percent-encoded Cyrillic) → following
+  it lands on `GET /?error=...` → `200` with the decoded error banner
+  and the self-correct script both present. (Caught a curl-specific
+  false negative along the way: `curl -X POST -L` keeps forcing POST on
+  the followed request too, unlike a real browser's spec-correct
+  303→GET downgrade — had to drop `-X POST` and let `-d` imply the
+  method only on the first request to see the real behavior.) Full
+  suite: 98/98 passing.

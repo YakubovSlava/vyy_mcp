@@ -199,6 +199,28 @@ available to every user of the server — without restarting anything.
   `test_trailing_slash_never_triggers_a_redirect` reproduces the exact
   shape of the original report (`POST /tools/upload/`, `GET /users/`,
   `GET /docs/`) and asserts 200, not 307.
+- **Mutating POSTs (`/tools/upload`, `/tools/{name}/delete`,
+  `/config/shared-dir`) now redirect (303) back to the Skills page
+  (`.`) with the outcome passed as a `message`/`error` query param,
+  reusing the already-proven `_relative_redirect()` helper** — reversing
+  an earlier decision (see the 2026-10-19 "page split" PLAN entry) to
+  render `index.html` directly at the POST's own URL with no redirect
+  at all, specifically to avoid an *absolute* redirect escaping the
+  proxy prefix. That reasoning no longer applies: `_relative_redirect()`
+  (used by `/login` for exactly this "bounce back after a successful
+  POST" case already) was proven correct under a real proxy well after
+  that original decision was made, so there's no remaining reason to
+  leave the address bar sitting on `/tools/upload` or
+  `/tools/{name}/delete` instead of back on the actual list — which is
+  what users actually expect ("редиректит на основную после удаления и
+  добавления" — explicit request). This also fully eliminates the
+  self-correct-script-fires-on-a-POST-response class of bug just above:
+  `_render()` (and therefore `index.html`'s self-correct script) is now
+  *only* ever reached via `GET /`, so `self_correct` is unconditionally
+  true there and the guard is a documented invariant rather than a
+  tested edge case. `index()` now accepts optional `message`/`error`
+  query params read straight into the same banner the inline-render
+  used to pass directly.
 - **End users are tracked, not authenticated.** Per explicit decision:
   regular MCP users (as opposed to admins) get no account in
   `admins.json` and no password of their own. `common/users.py` is a
@@ -279,11 +301,13 @@ available to every user of the server — without restarting anything.
   side is curl-based.
 - **A separate JSON API surface (`/api/tools`, `/api/tools/{name}/delete`)
   exists alongside the HTML routes**, rather than having the child relay
-  scrape the human-facing HTML. The HTML routes return 200 with an error
-  *banner in the body* on failure (so the browser always gets a renderable
-  page); machine callers need real status codes (400 validation, 409
-  duplicate, 404 missing) and structured JSON instead, so they're separate
-  endpoints rather than a content-negotiation branch on the same route.
+  scrape the human-facing HTML. The HTML routes always end up rendering
+  the Skills page with an error/success *banner in the body* (so the
+  browser always gets a renderable page — see the redirect-to-root entry
+  below for exactly how that page is reached since 2026-10-20); machine
+  callers need real status codes (400 validation, 409 duplicate, 404
+  missing) and structured JSON instead, so they're separate endpoints
+  rather than a content-negotiation branch on the same route.
 - **Validation is structural, not sandboxed.** Per explicit decision: the
   admin UI parses the archive with `zipfile`/`ast` and never executes
   uploaded code during validation. Execution happens only when an MCP
