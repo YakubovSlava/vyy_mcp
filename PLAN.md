@@ -395,9 +395,9 @@ available to every user of the server — without restarting anything.
   (`echo_tool`, `setup_files_tool`) already had a docstring on its single
   function, so migrating them was just deleting the now-redundant
   `manifest.json` file.
-- **A doc skill's `description` frontmatter field becomes the MCP tool's
-  own `description`**, not just documentation. This is the entire point
-  of the feature per explicit request — "на уровне инструмента должно
+- **A doc skill's `description` becomes the MCP tool's own
+  `description`**, not just documentation. This is the entire point of
+  the feature per explicit request — "на уровне инструмента должно
   задаваться описание, чтобы агент понимал, когда нужно обращаться к
   конкретному скиллу" (the tool-level description must let an agent know
   when to reach for this specific skill). `mcp_server/server.py`'s
@@ -405,6 +405,46 @@ available to every user of the server — without restarting anything.
   for doc skills the same way a code skill's docstring/description flows
   through today, so a connecting agent can decide whether to invoke the
   skill purely from `tools/list`, without reading `SKILL.md`'s body first.
+- **`SKILL.md` carries no YAML frontmatter at all — `name`/`description`
+  are entered directly in the admin UI's upload form instead.** Reversed
+  the original design (frontmatter-based, mirroring Claude's Agent
+  Skills format exactly) per explicit follow-up request: "никто так не
+  пишет" — writing a YAML block by hand in a markdown file is unnatural
+  ceremony nobody actually does, and the project had just made the
+  *code*-skill case admin/author-friendly by deriving its manifest from
+  the function itself (see above) — doc skills needed the same kind of
+  simplification, just via a form field instead of a parsed file, since
+  there's no code to introspect. Explicitly chose "drop frontmatter
+  entirely, always from the form" over "keep it as an optional
+  override" (asked via AskUserQuestion) to avoid the ambiguity of two
+  sources of truth disagreeing. `common/doc_skill.py`'s
+  `validate_doc_skill_archive()` now takes `name`/`description` as
+  required keyword arguments instead of parsing them out of the file;
+  `SKILL.md` is just `.strip()`-ed and used as the body verbatim.
+  Dropped the `pyyaml` dependency entirely along with the parsing code —
+  nothing in this project needs YAML for anything else.
+- **The admin-supplied description has nowhere left in the bundle to
+  live, so it's persisted to a `.skill_meta.json` sidecar file written
+  at install time** (`common/doc_skill.py`'s `write_meta()`), read back
+  by `validate_doc_skill_dir()` on every re-scan (`registry.list_tools`
+  re-derives every manifest from disk on every call, same as a code
+  skill's docstring — there's no cached manifest file for either kind).
+  `name` doesn't need its own sidecar entry: it's already the installed
+  folder's name (`validate_doc_skill_dir` uses `skill_dir.name` instead
+  of a stored field), the same way `tools_dir(shared_dir) / manifest.name`
+  already worked for every other installed skill. The sidecar file is
+  excluded from the doc skill's own `files` listing (what an agent sees
+  offered via `file="<path>"`) the same way `SKILL.md` itself already
+  was.
+- **Both upload paths (the HTML form and the JSON `/api/tools` a child
+  relay's `curl` call hits) gained `name`/`description` form fields**,
+  always present but only meaningful for a doc-skill upload — a code
+  skill ignores them entirely (its name/description always come from the
+  function). `admin_ui/main.py`'s `upload_tool()`/`api_upload_tool()`
+  both forward them straight into `registry.install_tool(..., name=,
+  description=)`; the child-relay branch adds them to the `curl_client.post`
+  `fields=` dict alongside `overwrite`, so a relay's forward to the main
+  host carries them too.
 - **Doc skills use progressive disclosure, not a single bulk response.**
   Asked explicitly (file content on every call vs. SKILL.md + listing
   first, files on request) — chose the latter. A no-argument call to a
@@ -437,7 +477,8 @@ available to every user of the server — without restarting anything.
     <name>/
       <module>.py           # self-describing: one function, name/docstring/__version__
     <doc-skill-name>/
-      SKILL.md              (or skill.md)
+      SKILL.md              (or skill.md) -- plain markdown, no frontmatter
+      .skill_meta.json      # admin-supplied description, written at install time
       ... (any other supporting files/folders)
 ```
 

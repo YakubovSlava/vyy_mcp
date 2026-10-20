@@ -358,6 +358,8 @@ async def upload_tool(
     request: Request,
     archive: UploadFile = File(...),
     overwrite: bool = Form(False),
+    name: str = Form(""),
+    description: str = Form(""),
     _admin: str | None = Depends(require_admin_page),
 ):
     with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
@@ -371,7 +373,7 @@ async def upload_tool(
                     f"{MAIN_HOST}/api/tools",
                     CHILD_USER,
                     CHILD_PASSWORD,
-                    fields={"overwrite": "true" if overwrite else "false"},
+                    fields={"overwrite": "true" if overwrite else "false", "name": name, "description": description},
                     files={"archive": str(tmp_path)},
                     insecure=INSECURE_TLS,
                 )
@@ -394,7 +396,9 @@ async def upload_tool(
         config = load_config()
         shared_dir = config.shared_dir_path
         try:
-            manifest = registry.install_tool(tmp_path, shared_dir, overwrite=overwrite)
+            manifest = registry.install_tool(
+                tmp_path, shared_dir, overwrite=overwrite, name=name or None, description=description or None
+            )
         except (ToolValidationError, ToolAlreadyExistsError) as exc:
             return _redirect_to_root(request, error=str(exc))
         return _redirect_to_root(
@@ -454,6 +458,8 @@ def api_list_tools(_admin: str | None = Depends(require_admin_api)):
 async def api_upload_tool(
     archive: UploadFile = File(...),
     overwrite: bool = Form(False),
+    name: str = Form(""),
+    description: str = Form(""),
     _admin: str | None = Depends(require_admin_api),
 ):
     config = load_config()
@@ -464,7 +470,9 @@ async def api_upload_tool(
         tmp_path = Path(tmp.name)
 
     try:
-        manifest = registry.install_tool(tmp_path, shared_dir, overwrite=overwrite)
+        manifest = registry.install_tool(
+            tmp_path, shared_dir, overwrite=overwrite, name=name or None, description=description or None
+        )
     except ToolValidationError as exc:
         return JSONResponse(status_code=400, content={"error": str(exc)})
     except ToolAlreadyExistsError as exc:

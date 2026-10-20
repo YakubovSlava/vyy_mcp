@@ -879,3 +879,51 @@
   303→GET downgrade — had to drop `-X POST` and let `-d` imply the
   method only on the first request to see the real behavior.) Full
   suite: 98/98 passing.
+
+## 2026-10-20 (SKILL.md no longer needs a YAML frontmatter — name/description now come from the upload form)
+
+- Per explicit request ("никто так не пишет" — a hand-written YAML
+  block in a markdown file is unnatural, nobody actually writes doc
+  skills that way), dropped the required `---\nname: ...\n
+  description: ...\n---` frontmatter from `SKILL.md` entirely. Chose
+  "drop it completely, always from the form" over "keep it as an
+  optional override" (asked via AskUserQuestion) to avoid two sources of
+  truth disagreeing. `SKILL.md` is now just plain markdown — no special
+  syntax — used verbatim (`.strip()`-ed) as the tool's body.
+- `common/doc_skill.py`'s `validate_doc_skill_archive()` now takes
+  `name`/`description` as required keyword arguments instead of parsing
+  them from the file; both are validated the same as before (`name`
+  against `NAME_RE`, both non-empty). Since there's nowhere left in the
+  bundle to persist the admin-supplied `description` once the
+  frontmatter is gone, added `write_meta()`/a `.skill_meta.json` sidecar
+  file, written at install time and read back by the rewritten
+  `validate_doc_skill_dir()` on every re-scan — `name` itself needs no
+  sidecar entry since it's already the installed folder's name.
+  Excluded the sidecar from the skill's own `files` listing, same as
+  `SKILL.md` itself already was. Dropped `parse_skill_md()`, the
+  frontmatter regex, and the `pyyaml` dependency entirely — nothing else
+  in this project needs YAML.
+- `common/registry.py`'s `install_tool()`/`_validate_archive()` gained
+  optional `name`/`description` keyword arguments, threaded through to
+  the doc-skill validator; a code-skill upload ignores them completely
+  (its name/description always come from the function, unchanged).
+- Admin UI: `templates/index.html`'s "Add a skill" dialog gained
+  **Имя**/**Описание** text fields (with a note that they only matter
+  for `SKILL.md` uploads), wired into `upload_tool()` (HTML route) and
+  `api_upload_tool()` (JSON API, what a child relay's `curl` call hits)
+  as new `Form` fields, both forwarded straight into
+  `registry.install_tool(..., name=, description=)`. The child-relay
+  branch's `curl_client.post(...)` call also forwards them in its
+  `fields=` dict alongside `overwrite`, so a relay's forward to the main
+  host carries them too. `templates/docs.html` and `README.md` rewritten
+  to match (no more frontmatter example; explains the form fields
+  instead).
+- Migrated `examples/repo_explainer/SKILL.md` by deleting its
+  frontmatter block — the body itself needed no changes. Tests:
+  rewrote `test_doc_skill.py` for the new keyword-argument API (dropped
+  every frontmatter-parsing test, added name/description-required
+  cases and `.skill_meta.json` round-trip/missing/invalid-JSON cases);
+  updated `test_registry.py`'s doc-skill helpers and
+  `test_server_sync.py`'s `test_doc_skill_round_trip` to pass
+  `name=`/`description=` explicitly now that the example's `SKILL.md`
+  no longer carries them. Full suite: 100/100 passing.

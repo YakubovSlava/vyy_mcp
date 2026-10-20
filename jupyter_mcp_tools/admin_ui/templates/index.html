@@ -101,6 +101,15 @@
       Архив
       <input type="file" name="archive" accept=".zip" required />
     </label>
+    <label>
+      Имя
+      <input type="text" name="name" placeholder="my-skill" pattern="[a-z0-9][a-z0-9_\-]{1,63}" />
+    </label>
+    <label>
+      Описание
+      <input type="text" name="description" placeholder="Когда и для чего использовать этот навык" />
+    </label>
+    <p style="margin-top:-0.5rem">Имя и описание нужны только для навыков в формате <code>SKILL.md</code> — для <code>.py</code>-навыков они берутся из самой функции и игнорируются здесь.</p>
     <label class="check">
       <input type="checkbox" name="overwrite" value="true" />
       перезаписать, если уже существует

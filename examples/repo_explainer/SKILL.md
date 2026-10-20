@@ -1,8 +1,3 @@
----
-name: repo-explainer
-description: Use this when the user asks how this repository is organized, where a particular piece of functionality lives, or wants an onboarding overview before making a change. Explains the repo's structure and points at the right files.
----
-
 # Repo explainer
 
 This repository hosts an MCP server and an admin web UI for sharing

@@ -332,9 +332,8 @@ expose the admin UI to untrusted users.
 ### Doc skills
 
 A doc skill has no Python code — it's a `SKILL.md` (or `skill.md`) file at
-the archive root, YAML frontmatter plus a markdown body, plus any
-supporting files/folders the body refers to. This is Claude's "Agent
-Skills" format:
+the archive root, **plain markdown with no required syntax at all**,
+plus any supporting files/folders the body refers to:
 
 ```
 SKILL.md
@@ -342,20 +341,26 @@ references/architecture.md   (any supporting files the body refers to)
 ```
 
 ```markdown
----
-name: repo-explainer
-description: Use this when the user asks how this repository is organized, where a particular piece of functionality lives, or wants an onboarding overview before making a change.
----
-
 # Repo explainer
 
 ... instructions for the agent go here ...
 ```
 
-- `name` — unique slug (`[a-z0-9][a-z0-9_-]+`), also the MCP tool name.
+Per explicit decision, `name` and `description` are **not** read from the
+file (no YAML frontmatter) — they're entered directly in the "Add a
+skill" upload form instead, the same role a code skill's function
+name/docstring plays:
+
+- `name` — unique slug (`[a-z0-9][a-z0-9_-]+`), also the MCP tool name
+  and the installed folder's name.
 - `description` — becomes the MCP tool's own description, so a connecting
   agent can decide when to call it purely from `tools/list` without
   reading the body first.
+
+The admin-supplied description is persisted to a small
+`.skill_meta.json` sidecar file inside the installed skill's folder, so
+it survives being re-read from disk on every scan — there's nowhere else
+left in the bundle to keep it once the frontmatter is gone.
 
 Calling the resulting MCP tool uses progressive disclosure, not a single
 dump of everything: with no arguments it returns the `SKILL.md` body plus

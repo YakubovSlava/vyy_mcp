@@ -87,7 +87,12 @@ def test_doc_skill_round_trip(shared_dir, tmp_path):
     call, both the no-argument (main doc + file listing) and file=
     (specific file content) cases, the same way the MCP server loads it."""
     archive = _zip_example("repo_explainer", tmp_path)
-    registry.install_tool(archive, shared_dir)
+    registry.install_tool(
+        archive,
+        shared_dir,
+        name="repo-explainer",
+        description="Use this when the user asks how this repository is organized.",
+    )
 
     app = build_app(shared_dir)
     sync_tools(app, shared_dir)

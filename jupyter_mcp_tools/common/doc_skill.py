@@ -1,23 +1,24 @@
 """Doc-skill bundles: folders (or zip archives) containing a ``SKILL.md``
-(a.k.a. the Claude "Agent Skills" format) instead of a ``manifest.json`` +
+(inspired by Claude's "Agent Skills" format, simplified) instead of a
 Python entrypoint.
 
 Layout::
 
     <skill-name>/
-      SKILL.md          # YAML frontmatter (name, description) + markdown body
+      SKILL.md             # plain markdown body -- no special syntax required
+      .skill_meta.json      # {"description": "..."} -- written at install time
       ... any other files/folders (scripts, references, assets, ...)
 
-``SKILL.md``::
-
-    ---
-    name: my-skill
-    description: Use this when the user asks about X; explains how to do Y.
-    ---
-
-    # My Skill
-
-    <markdown body — instructions for whoever/whatever is using this skill>
+Per explicit request, ``SKILL.md`` itself carries no YAML frontmatter and
+no required syntax at all — it's just the markdown instructions a human
+would naturally write. ``name`` and ``description`` are supplied by the
+admin directly in the upload form instead (the doc-skill equivalent of a
+code skill's function name/docstring): ``name`` becomes both the
+installed folder name and the MCP tool name, and ``description`` is
+persisted to a small ``.skill_meta.json`` sidecar file so it survives
+being re-read from disk on every scan (see ``registry.list_tools``) —
+there's nowhere else left in the bundle to keep it once the frontmatter
+is gone.
 
 The MCP tool built from this bundle (see mcp_server/server.py) uses
 `description` as the *tool's own* MCP description, so an agent can decide
@@ -30,17 +31,15 @@ in full on every call.
 """
 from __future__ import annotations
 
-import re
+import json
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml
-
 from .manifest import NAME_RE, ToolValidationError
 
 _SKILL_MD_NAMES = ("SKILL.md", "skill.md")
-_FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?(.*)\Z", re.DOTALL)
+_META_FILENAME = ".skill_meta.json"
 
 
 @dataclass
@@ -49,7 +48,7 @@ class DocSkillManifest:
     description: str
     body: str
     version: str = "1.0.0"
-    files: tuple[str, ...] = ()  # relative paths of auxiliary files (excludes SKILL.md itself)
+    files: tuple[str, ...] = ()  # relative paths of auxiliary files (excludes SKILL.md/meta)
 
     @property
     def kind(self) -> str:
@@ -64,49 +63,24 @@ def find_skill_md_name(names: list[str]) -> str | None:
     return None
 
 
-def parse_skill_md(raw: str) -> tuple[dict, str]:
-    """Split SKILL.md into (frontmatter dict, body markdown)."""
-    match = _FRONTMATTER_RE.match(raw)
-    if not match:
-        raise ToolValidationError("SKILL.md must start with a '---' YAML frontmatter block")
-
-    try:
-        frontmatter = yaml.safe_load(match.group(1))
-    except yaml.YAMLError as exc:
-        raise ToolValidationError(f"SKILL.md frontmatter is not valid YAML: {exc}") from exc
-
-    if not isinstance(frontmatter, dict):
-        raise ToolValidationError("SKILL.md frontmatter must be a YAML mapping")
-
-    return frontmatter, match.group(2).strip()
-
-
-def _manifest_from_parts(frontmatter: dict, body: str, files: tuple[str, ...]) -> DocSkillManifest:
-    missing = [f for f in ("name", "description") if not frontmatter.get(f)]
-    if missing:
-        raise ToolValidationError(f"SKILL.md frontmatter missing field(s): {', '.join(missing)}")
-
-    name = str(frontmatter["name"])
+def _check_name_and_description(name: str, description: str) -> None:
+    if not name:
+        raise ToolValidationError("doc skill needs a name — enter it in the upload form")
     if not NAME_RE.match(name):
-        raise ToolValidationError("SKILL.md 'name' must match [a-z0-9][a-z0-9_-]{1,63}")
-
-    if not body:
-        raise ToolValidationError("SKILL.md has no body content after the frontmatter block")
-
-    return DocSkillManifest(
-        name=name,
-        description=str(frontmatter["description"]),
-        body=body,
-        version=str(frontmatter.get("version", "1.0.0")),
-        files=files,
-    )
+        raise ToolValidationError("name must match [a-z0-9][a-z0-9_-]{1,63}")
+    if not description:
+        raise ToolValidationError("doc skill needs a description — enter it in the upload form")
 
 
-def validate_doc_skill_archive(archive_path: Path) -> DocSkillManifest:
+def validate_doc_skill_archive(archive_path: Path, *, name: str, description: str) -> DocSkillManifest:
     """Validate a doc-skill `.zip` and return its manifest.
 
+    `name`/`description` come from the admin's upload form, not from the
+    file itself — SKILL.md is plain markdown with no required syntax.
     Raises ToolValidationError on any structural problem.
     """
+    _check_name_and_description(name, description)
+
     if not zipfile.is_zipfile(archive_path):
         raise ToolValidationError("file is not a valid zip archive")
 
@@ -120,15 +94,20 @@ def validate_doc_skill_archive(archive_path: Path) -> DocSkillManifest:
         if skill_md_name is None:
             raise ToolValidationError("archive is missing SKILL.md (or skill.md) at its root")
 
-        frontmatter, body = parse_skill_md(zf.read(skill_md_name).decode("utf-8", errors="replace"))
+        body = zf.read(skill_md_name).decode("utf-8", errors="replace").strip()
+        if not body:
+            raise ToolValidationError("SKILL.md has no content")
+
         files = tuple(sorted(n for n in names if n != skill_md_name and not n.endswith("/")))
 
-    return _manifest_from_parts(frontmatter, body, files)
+    return DocSkillManifest(name=name, description=description, body=body, files=files)
 
 
 def validate_doc_skill_dir(skill_dir: Path) -> DocSkillManifest:
     """Validate a doc-skill that's already a directory on disk (used when
-    re-reading an installed skill, not an upload)."""
+    re-reading an installed skill, not an upload). `name` is the folder
+    name; `description` is read back from the `.skill_meta.json` sidecar
+    written at install time."""
     skill_md_path = None
     for candidate in _SKILL_MD_NAMES:
         if (skill_dir / candidate).exists():
@@ -137,12 +116,28 @@ def validate_doc_skill_dir(skill_dir: Path) -> DocSkillManifest:
     if skill_md_path is None:
         raise ToolValidationError("directory is missing SKILL.md (or skill.md)")
 
-    frontmatter, body = parse_skill_md(skill_md_path.read_text(encoding="utf-8", errors="replace"))
+    meta_path = skill_dir / _META_FILENAME
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        description = str(meta["description"])
+    except (OSError, json.JSONDecodeError, KeyError) as exc:
+        raise ToolValidationError(f"missing or invalid {_META_FILENAME}") from exc
+
+    body = skill_md_path.read_text(encoding="utf-8", errors="replace").strip()
+    if not body:
+        raise ToolValidationError("SKILL.md has no content")
+
     files = tuple(
         sorted(
             str(p.relative_to(skill_dir))
             for p in skill_dir.rglob("*")
-            if p.is_file() and p != skill_md_path
+            if p.is_file() and p not in (skill_md_path, meta_path)
         )
     )
-    return _manifest_from_parts(frontmatter, body, files)
+    return DocSkillManifest(name=skill_dir.name, description=description, body=body, files=files)
+
+
+def write_meta(skill_dir: Path, description: str) -> None:
+    """Persist the admin-supplied description alongside an installed doc
+    skill, so `validate_doc_skill_dir` can recover it on every re-scan."""
+    (skill_dir / _META_FILENAME).write_text(json.dumps({"description": description}), encoding="utf-8")
