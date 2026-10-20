@@ -105,9 +105,15 @@ def test_set_shared_dir(client, tmp_path):
     assert str(new_dir) in r.text
 
 
-def test_delete_missing_tool_404(client):
+def test_delete_missing_tool_shows_friendly_error(client):
+    # Matches every other HTML route's convention (PLAN.md: "HTML routes
+    # return 200 with an error banner in the body") rather than leaking a
+    # bare FastAPI {"detail": ...} JSON page — this is what a double
+    # click, or a stale page after someone else already removed it,
+    # actually looks like to the admin.
     r = client.post("/tools/does-not-exist/delete")
-    assert r.status_code == 404
+    assert r.status_code == 200
+    assert "не установлен" in r.text
 
 
 def test_form_actions_are_relative(client):

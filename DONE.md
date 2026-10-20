@@ -776,3 +776,31 @@
   the real running admin UI with `curl` too (trailing-slash requests now
   get our own relative `../login`/`login` redirects when unauthenticated,
   never an absolute `http://...` one). Full suite: 97/97 passing.
+
+## 2026-10-20 (deleting an already-gone skill showed a bare JSON error page)
+
+- User reported clicking "Удалить" on a skill as "not working," producing
+  a raw `404` response. Captured the actual request/response from the
+  browser's Network tab: `Server: uvicorn`, a small `application/json`
+  body — this was genuinely *our own app* responding, not a proxy
+  problem this time, and the tool really was already gone (confirmed by
+  reading the real shared directory directly: `tools/` was empty, and
+  the admin UI's own log showed an earlier `POST /tools/echo/delete`
+  that had already succeeded with `200` — the second click was against a
+  stale page that still showed the already-deleted row).
+- The underlying bug this surfaced: `delete_tool` in `admin_ui/main.py`
+  raised a bare `HTTPException(404)` on `ToolNotFoundError` for both the
+  main-host and child-relay code paths, which FastAPI renders as a
+  plain unstyled `{"detail": "..."}` JSON page with no navigation — a
+  direct violation of this project's own documented convention (PLAN.md:
+  "HTML routes return 200 with an error banner in the body... since a
+  browser needs a renderable page either way"), which every *other*
+  mutating route (`tools/upload`, `config/shared-dir`) already follows.
+  A double-click, or any stale page after someone else removed the same
+  tool, looked like a broken app instead of "someone already removed
+  this — refresh."
+- Fixed both branches of `delete_tool` to `_render(request, error=...)`
+  instead of raising, matching the rest of the app. Updated
+  `test_delete_missing_tool_404` (renamed
+  `test_delete_missing_tool_shows_friendly_error`) for the new 200 +
+  banner behavior. Full suite: 97/97 passing.

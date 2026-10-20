@@ -375,7 +375,7 @@ def delete_tool(request: Request, name: str, _admin: str | None = Depends(requir
         except curl_client.CurlError as exc:
             return _render(request, error=f"Не удалось подключиться к основному хосту: {exc}")
         if resp.status == 404:
-            raise HTTPException(status_code=404, detail=f"tool '{name}' is not installed on the main host")
+            return _render(request, error=f"«{name}» не установлен на основном хосте (возможно, уже удалён).")
         if resp.status != 200:
             return _render(request, error=f"Основной хост вернул HTTP {resp.status}.")
         return _render(request, message=f"«{name}» удалён для всех пользователей.")
@@ -383,8 +383,8 @@ def delete_tool(request: Request, name: str, _admin: str | None = Depends(requir
     config = load_config()
     try:
         registry.remove_tool(config.shared_dir_path, name)
-    except ToolNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ToolNotFoundError:
+        return _render(request, error=f"«{name}» не установлен (возможно, уже удалён) — обновите страницу.")
     return _render(request, message=f"«{name}» удалён для всех пользователей.")
 
 
