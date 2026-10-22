@@ -551,6 +551,21 @@ def test_groups_page_create_list_delete(client):
     assert r.json() == []
 
 
+def test_groups_page_edit_button_and_overwrite_updates_description(client):
+    client.post("/groups", data={"name": "networking", "description": "Network stuff."})
+
+    r = client.get("/groups")
+    assert 'data-name="networking"' in r.text
+    assert 'data-description="Network stuff."' in r.text
+    assert "Редактировать" in r.text
+
+    r = client.post("/groups", data={"name": "networking", "description": "Updated desc.", "overwrite": "true"})
+    assert "Updated desc." in r.text
+
+    r = client.get("/api/groups", auth=(ADMIN_USER, ADMIN_PASSWORD))
+    assert r.json() == [{"name": "networking", "description": "Updated desc."}]
+
+
 def test_groups_page_duplicate_without_overwrite_shows_error(client):
     client.post("/groups", data={"name": "networking", "description": "desc"})
     r = client.post("/groups", data={"name": "networking", "description": "desc2"})

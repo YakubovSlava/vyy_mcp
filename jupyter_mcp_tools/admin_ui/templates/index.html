@@ -52,6 +52,14 @@
       {% if t.group %}<span class="skill-group">{{ t.group }}</span>{% endif %}
       <span class="skill-kind kind-{{ t.kind }}">{{ "SKILL.md" if t.kind == "doc" else "код" }}</span>
       <span class="skill-desc">{{ t.description }}</span>
+      <div class="skill-tooltip">
+        <div class="tt-title">
+          <span>{{ t.name }}</span>
+          <span class="skill-kind kind-{{ t.kind }}">{{ "SKILL.md" if t.kind == "doc" else "код" }}</span>
+          {% if t.group %}<span class="skill-group">{{ t.group }}</span>{% endif %}
+        </div>
+        <div class="tt-desc">{{ t.description }}</div>
+      </div>
       {% if not read_only %}
       {% if t.kind == "doc" %}
       <button type="button" class="edit-btn" data-name="{{ t.name }}" data-description="{{ t.description }}" data-group="{{ t.group or '' }}" onclick="openEditDescription(this)">Редактировать</button>

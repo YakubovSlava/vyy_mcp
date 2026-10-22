@@ -149,6 +149,7 @@
     }
 
     .skill-row {
+      position: relative;
       display: flex;
       align-items: center;
       gap: 1rem;
@@ -156,6 +157,34 @@
       border-bottom: 1px solid var(--border);
     }
     .skill-row:last-child { border-bottom: none; }
+
+    .skill-tooltip {
+      position: absolute;
+      top: calc(100% - 1px);
+      left: 1.25rem;
+      right: 1.25rem;
+      z-index: 20;
+      background: var(--ink);
+      color: #fff;
+      padding: 0.8rem 1rem;
+      border-radius: 10px;
+      font-size: 0.82rem;
+      line-height: 1.5;
+      box-shadow: 0 12px 32px rgba(20, 20, 22, 0.28);
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(-4px);
+      transition: opacity 0.12s ease, transform 0.12s ease;
+      pointer-events: none;
+    }
+    .skill-row:hover .skill-tooltip {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(0);
+    }
+    .skill-tooltip .tt-title { font-weight: 600; margin-bottom: 0.3rem; display: flex; align-items: center; gap: 0.5rem; }
+    .skill-tooltip .tt-title .skill-kind, .skill-tooltip .tt-title .skill-group { background: rgba(255,255,255,0.14); color: #fff; }
+    .skill-tooltip .tt-desc { color: #D7D8DC; white-space: normal; }
 
     .skill-name { font-weight: 600; font-size: 0.95rem; }
     .skill-desc { flex: 1; color: var(--muted); font-size: 0.88rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

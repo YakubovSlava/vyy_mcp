@@ -1289,3 +1289,28 @@
 - Tests: dropped `test_custom_version_picked_up` and the `version`
   assertions in `test_manifest.py`/`test_doc_skill.py`. Full suite:
   163/163 passing.
+
+## 2026-10-22 (edit a group's description; hover tooltip for truncated skill descriptions)
+
+- Per explicit request ("Почему нет возможности редактировать описание в
+  группе") — the backend already supported this via
+  `create_group(..., overwrite=True)`, only the UI was missing it.
+  `groups.html` gained a "Редактировать" button per row
+  (`data-name`/`data-description`) that reuses the existing
+  `addGroupDialog`/`POST /groups` form: `openEditGroup()` pre-fills
+  name/description, makes name read-only (it's the group's identity),
+  hides+force-checks the overwrite checkbox, relabels the submit button.
+  `openAddGroup()` (wired to both "+" buttons) resets back to create
+  mode. No new route — same `POST /groups` handler.
+- Per explicit request ("При наведении на скилл, я хочу чтобы всплывала
+  карточка с описанием, названием и т.д.") — the Skills page truncates
+  each description to one line with an ellipsis, so long descriptions
+  were only readable via the edit dialog. Added a pure-CSS hover
+  tooltip: each `.skill-row` (`position: relative`) now carries a
+  sibling `.skill-tooltip` div (name, kind, group, full untruncated
+  description) shown via `.skill-row:hover .skill-tooltip` — no JS, no
+  new template context.
+- Tests: `test_groups_page_edit_button_and_overwrite_updates_description`
+  (new) checks the edit button renders with the right `data-*` and that
+  posting with `overwrite=true` actually updates the stored description.
+  Full suite: 164/164 passing.

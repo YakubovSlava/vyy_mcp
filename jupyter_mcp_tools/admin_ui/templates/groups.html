@@ -4,7 +4,7 @@
 
 {% block header_actions %}
 {% if not read_only %}
-<button type="button" class="fab" title="Добавить группу" onclick="addGroupDialog.showModal()">+</button>
+<button type="button" class="fab" title="Добавить группу" onclick="openAddGroup()">+</button>
 {% endif %}
 {% endblock %}
 
@@ -21,6 +21,7 @@
       <span class="skill-name">{{ g.name }}</span>
       <span class="skill-desc">{{ g.description }}</span>
       {% if not read_only %}
+      <button type="button" class="edit-btn" data-name="{{ g.name }}" data-description="{{ g.description }}" onclick="openEditGroup(this)">Редактировать</button>
       <form method="post" action="groups/{{ g.name }}/delete" onsubmit="return confirm('Удалить группу {{ g.name }}? Навыки в ней станут показываться по отдельности.');">
         <button type="submit" class="remove-btn">Удалить</button>
       </form>
@@ -32,7 +33,7 @@
       <div class="glyph">＋</div>
       <div>Групп пока нет.</div>
       {% if not read_only %}
-      <button type="button" class="cta" onclick="addGroupDialog.showModal()">Добавить первую группу</button>
+      <button type="button" class="cta" onclick="openAddGroup()">Добавить первую группу</button>
       {% endif %}
     </div>
   {% endif %}
@@ -41,25 +42,48 @@
 
 {% block dialogs %}
 <dialog id="addGroupDialog">
-  <form method="post" action="groups" class="dialog-body">
-    <h3>Добавить группу</h3>
+  <form method="post" action="groups" id="groupForm" class="dialog-body">
+    <h3 id="groupDialogTitle">Добавить группу</h3>
     <p>Имя и описание группы — агент видит именно это описание в списке инструментов вместо описаний отдельных навыков этой группы.</p>
     <label>
       Имя
-      <input type="text" name="name" placeholder="networking" pattern="[a-z0-9][a-z0-9_\-]{1,63}" required />
+      <input type="text" name="name" id="groupNameInput" placeholder="networking" pattern="[a-z0-9][a-z0-9_\-]{1,63}" required />
     </label>
     <label>
       Описание
-      <input type="text" name="description" placeholder="Когда и для чего использовать навыки этой группы" required />
+      <input type="text" name="description" id="groupDescriptionInput" placeholder="Когда и для чего использовать навыки этой группы" required />
     </label>
-    <label class="check">
-      <input type="checkbox" name="overwrite" value="true" />
+    <label class="check" id="groupOverwriteLabel">
+      <input type="checkbox" name="overwrite" id="groupOverwriteInput" value="true" />
       перезаписать, если уже существует
     </label>
     <div class="dialog-actions">
       <button type="button" class="btn ghost" onclick="addGroupDialog.close()">Отмена</button>
-      <button type="submit" class="btn primary">Создать</button>
+      <button type="submit" class="btn primary" id="groupSubmitBtn">Создать</button>
     </div>
   </form>
 </dialog>
+
+<script>
+  function openAddGroup() {
+    groupDialogTitle.textContent = "Добавить группу";
+    groupForm.reset();
+    groupNameInput.readOnly = false;
+    groupOverwriteLabel.style.display = "";
+    groupOverwriteInput.checked = false;
+    groupSubmitBtn.textContent = "Создать";
+    addGroupDialog.showModal();
+  }
+
+  function openEditGroup(btn) {
+    groupDialogTitle.textContent = "Редактировать группу";
+    groupNameInput.value = btn.dataset.name;
+    groupNameInput.readOnly = true;
+    groupDescriptionInput.value = btn.dataset.description;
+    groupOverwriteLabel.style.display = "none";
+    groupOverwriteInput.checked = true;
+    groupSubmitBtn.textContent = "Сохранить";
+    addGroupDialog.showModal();
+  }
+</script>
 {% endblock %}

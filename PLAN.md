@@ -744,6 +744,37 @@ available to every user of the server — without restarting anything.
   `.skill-version` badge/CSS in the Skills page, and the "Версия" bullet
   in the in-app docs tab. A skill's version, in other words, was never a
   real feature — just a number nothing downstream ever compared against.
+- **A group's description can be edited from the Groups page**, per
+  explicit request ("Почему нет возможности редактировать описание в
+  группе") — the backend already supported this
+  (`create_group(..., overwrite=True)` just replaces the stored
+  description), only the UI was missing an edit entry point. Rather than
+  a second dialog, `groups.html` reuses the same `addGroupDialog`/`POST
+  /groups` form for both: a new "Редактировать" button per row
+  (`data-name`/`data-description`, same pattern as the Skills page's
+  edit button) calls `openEditGroup()`, which pre-fills the name/
+  description inputs, makes the name field read-only (a group's name is
+  its identity — renaming would just be delete+create, not an edit),
+  hides the "overwrite" checkbox and force-checks it, and relabels the
+  submit button to "Сохранить". `openAddGroup()` (wired to both "+"
+  buttons) resets all of that back to the create state. No new route or
+  backend change — the same `POST /groups` handler either creates or
+  overwrites depending on whether the name already exists.
+- **Hovering a skill row shows a tooltip card with its name, kind,
+  group, and full description**, per explicit request — the skill
+  list's description cell is a single truncated line
+  (`white-space: nowrap` + ellipsis, so the list stays scannable with
+  many skills), which meant long descriptions were previously only
+  readable by opening the edit dialog. Implemented as pure CSS, no JS:
+  each `.skill-row` (now `position: relative`) gets a sibling
+  `.skill-tooltip` div, `opacity`/`visibility: hidden` by default and
+  flipped to visible via a `.skill-row:hover .skill-tooltip` selector —
+  the same native-browser-primitive, no-framework approach as the rest
+  of this UI (native `<dialog>`s, plain `oninput` filtering). No new
+  template context: the tooltip just repeats `t.name`/`t.kind`/
+  `t.group`/`t.description`, already passed to every row.
+
+## Shared tools directory layout
 
 ```
 <shared_dir>/
