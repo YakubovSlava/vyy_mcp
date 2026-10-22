@@ -597,7 +597,7 @@ async def upload_tool(
                 return _redirect_to_root(
                     request, error=payload.get("error", f"Основной хост вернул HTTP {resp.status}.")
                 )
-            message = f"«{payload['name']}» v{payload['version']} установлен для всех пользователей."
+            message = f"«{payload['name']}» установлен для всех пользователей."
             if payload.get("git_push_error"):
                 message += f" Внимание: git push на основном хосте не выполнен ({payload['git_push_error']})."
             return _redirect_to_root(request, message=message)
@@ -615,7 +615,7 @@ async def upload_tool(
             )
         except (ToolValidationError, ToolAlreadyExistsError) as exc:
             return _redirect_to_root(request, error=str(exc))
-        message = f"«{manifest.name}» v{manifest.version} установлен для всех пользователей."
+        message = f"«{manifest.name}» установлен для всех пользователей."
         push_error = _maybe_git_push(config, shared_dir, f"Add skill '{manifest.name}'")
         if push_error:
             message += f" Внимание: git push не выполнен ({push_error})."
@@ -832,7 +832,7 @@ async def api_upload_tool(
         tmp_path.unlink(missing_ok=True)
 
     push_error = _maybe_git_push(config, shared_dir, f"Add skill '{manifest.name}'")
-    return {"name": manifest.name, "version": manifest.version, "git_push_error": push_error}
+    return {"name": manifest.name, "git_push_error": push_error}
 
 
 @app.post("/api/tools/create-doc-skill")
@@ -859,7 +859,7 @@ def api_create_doc_skill(
         return JSONResponse(status_code=409, content={"error": str(exc)})
 
     push_error = _maybe_git_push(config, shared_dir, f"Add skill '{manifest.name}'")
-    return {"name": manifest.name, "version": manifest.version, "git_push_error": push_error}
+    return {"name": manifest.name, "git_push_error": push_error}
 
 
 @app.post("/api/tools/{name}/delete")

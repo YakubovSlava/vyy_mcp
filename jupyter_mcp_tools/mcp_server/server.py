@@ -185,7 +185,7 @@ def sync_tools(app: FastMCP, shared_dir: Path) -> None:
             app.remove_tool(name)
         description = f"[{manifest.group}] {manifest.description}" if manifest.group else manifest.description
         app.add_tool(entrypoint, name=manifest.name, description=description)
-        logger.info("registered tool: %s (v%s, group=%r)", manifest.name, manifest.version, manifest.group)
+        logger.info("registered tool: %s (group=%r)", manifest.name, manifest.group)
 
     for group_name, group_manifests in grouped.items():
         tool_name = f"group_{group_name}"

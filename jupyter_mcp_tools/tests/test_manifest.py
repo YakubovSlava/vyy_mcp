@@ -12,7 +12,6 @@ def test_valid_archive_passes(make_archive):
     assert manifest.name == "greet"
     assert manifest.entrypoint == "tool:greet"
     assert manifest.description == "Greets someone by name."
-    assert manifest.version == "1.0.0"
 
 
 def test_not_a_zip(tmp_path):
@@ -70,13 +69,6 @@ def test_syntax_error_in_module(make_archive):
     archive = make_archive("greet", "def greet(name:\n")
     with pytest.raises(ToolValidationError, match="syntax error"):
         validate_archive(archive)
-
-
-def test_custom_version_picked_up(make_archive):
-    module = '__version__ = "2.3.1"\n\n' + VALID_MODULE
-    archive = make_archive("greet", module)
-    manifest = validate_archive(archive)
-    assert manifest.version == "2.3.1"
 
 
 def test_group_picked_up(make_archive):

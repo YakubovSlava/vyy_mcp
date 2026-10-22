@@ -51,7 +51,6 @@
       <span class="skill-name">{{ t.name }}</span>
       {% if t.group %}<span class="skill-group">{{ t.group }}</span>{% endif %}
       <span class="skill-kind kind-{{ t.kind }}">{{ "SKILL.md" if t.kind == "doc" else "код" }}</span>
-      <span class="skill-version">v{{ t.version }}</span>
       <span class="skill-desc">{{ t.description }}</span>
       {% if not read_only %}
       {% if t.kind == "doc" %}

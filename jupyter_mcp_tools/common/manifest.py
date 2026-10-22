@@ -13,8 +13,6 @@ the manifest:
   function name already does)
 - its **docstring** becomes the skill's description
 - ``"<module>:<function>"`` is computed automatically as the entrypoint
-- an optional module-level ``__version__ = "..."`` string literal sets
-  the version; it defaults to "1.0.0" if absent
 - an optional module-level ``__group__ = "..."`` string literal tags the
   skill with a group/category, shown in the admin UI and visible to a
   connecting agent (as a ``[group]`` prefix on the tool's own
@@ -37,8 +35,6 @@ from pathlib import Path
 
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
 
-DEFAULT_VERSION = "1.0.0"
-
 
 class ToolValidationError(ValueError):
     """Raised when a skill fails validation."""
@@ -47,7 +43,6 @@ class ToolValidationError(ValueError):
 @dataclass
 class Manifest:
     name: str
-    version: str
     description: str
     entrypoint: str
     group: str = ""
@@ -78,8 +73,8 @@ def _check_safe_members(zf: zipfile.ZipFile) -> None:
 
 def _extract_module_string(tree: ast.Module, var_name: str, default: str = "") -> str:
     """Read a module-level ``<var_name> = "..."`` string literal assignment,
-    if present (used for the optional ``__version__``/``__group__``
-    conventions) — never executes the module, just inspects its AST."""
+    if present (used for the optional ``__group__`` convention) — never
+    executes the module, just inspects its AST."""
     for node in ast.iter_child_nodes(tree):
         if not isinstance(node, ast.Assign):
             continue
@@ -125,7 +120,6 @@ def _manifest_from_source(filename: str, source: bytes | str) -> Manifest:
 
     return Manifest(
         name=func.name,
-        version=_extract_module_string(tree, "__version__", DEFAULT_VERSION),
         description=description.strip(),
         entrypoint=f"{filename[:-3]}:{func.name}",
         group=_extract_module_string(tree, "__group__"),

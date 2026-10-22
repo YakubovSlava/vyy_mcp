@@ -340,8 +340,6 @@ def echo(text: str, shout: bool = False) -> str:
   required, upload is rejected without one.
 - The **MCP input schema** is inferred from the function's type hints,
   same as any other FastMCP tool — nothing else to declare.
-- The **version** is an optional module-level `__version__ = "..."`
-  string literal; defaults to `"1.0.0"` if absent.
 - The **group** is an optional module-level `__group__ = "..."` string
   literal — see "Groups and search" below.
 - The archive/folder must contain exactly one `.py` file at its root —

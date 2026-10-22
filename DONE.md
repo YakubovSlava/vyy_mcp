@@ -1273,3 +1273,19 @@
   JSON routes, nav link presence). Two new `test_remote_mode.py` cases
   (child-relay group round trip, relay Groups page has no Users/Docs
   links). Full suite: 164/164 passing.
+
+## 2026-10-22 (remove skill versioning entirely)
+
+- Per explicit request ("Это версионирование все равно не работает") —
+  `version` never gated or diffed anything; `overwrite=True` already
+  replaces a skill in place with no history, so the number was pure
+  decoration. Removed the `version` field from `Manifest` and
+  `DocSkillManifest`, the `__version__` module-level AST extraction and
+  `DEFAULT_VERSION` constant in `manifest.py` (`_extract_module_string`
+  itself stays — still used for `__group__`), the `v{version}` in
+  admin-UI success messages and JSON API responses, the `v%s` in
+  `sync_tools()`'s log line, the `.skill-version` badge/CSS on the
+  Skills page, and the "Версия" bullet in the in-app docs tab.
+- Tests: dropped `test_custom_version_picked_up` and the `version`
+  assertions in `test_manifest.py`/`test_doc_skill.py`. Full suite:
+  163/163 passing.

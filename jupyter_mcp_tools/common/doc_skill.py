@@ -49,7 +49,6 @@ class DocSkillManifest:
     name: str
     description: str
     body: str
-    version: str = "1.0.0"
     group: str = ""
     files: tuple[str, ...] = ()  # relative paths of auxiliary files (excludes SKILL.md/meta)
 

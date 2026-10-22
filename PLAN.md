@@ -381,8 +381,10 @@ available to every user of the server — without restarting anything.
   used to declare straight from the single `.py` file's AST: the
   function's **name** (must match the same `NAME_RE` as before — an
   ordinary snake_case name already does), its **docstring** (required —
-  becomes `description`), and an optional module-level `__version__ =
-  "..."` string literal (defaults to `"1.0.0"`). `entrypoint` is computed
+  becomes `description`), and (at the time — since removed, see "Skill
+  versioning was removed entirely" below) an optional module-level
+  `__version__ = "..."` string literal (defaulted to `"1.0.0"`).
+  `entrypoint` is computed
   as `f"{module_stem}:{func.name}"` instead of being declared explicitly.
   The archive/folder must contain exactly one top-level `.py` file with
   exactly one top-level function — both now validated with a clear error
@@ -728,14 +730,26 @@ available to every user of the server — without restarting anything.
   interaction (dialogs via native `<dialog>`, the edit button's
   `data-*`-attribute pattern it already established). No new route, no
   new template context needed beyond what `tools` already carries.
-
-## Shared tools directory layout
+- **Skill versioning was removed entirely**, per explicit request ("Это
+  версионирование все равно не работает" — the `version` field never did
+  anything beyond a cosmetic badge/log line: `overwrite=True` already
+  replaces a skill in place with no history or rollback, so a version
+  string that doesn't gate or diff anything was pure decoration). Removed
+  the `version` field from both `Manifest` and `DocSkillManifest`, the
+  `__version__ = "..."` module-level AST extraction in `manifest.py`
+  (`DEFAULT_VERSION` and the `_extract_module_string(tree, "__version__",
+  ...)` call — `_extract_module_string` itself stays, still used for
+  `__group__`), the `v{version}` in admin-UI success messages and JSON
+  API responses, the `v%s` in `sync_tools()`'s log line, the
+  `.skill-version` badge/CSS in the Skills page, and the "Версия" bullet
+  in the in-app docs tab. A skill's version, in other words, was never a
+  real feature — just a number nothing downstream ever compared against.
 
 ```
 <shared_dir>/
   tools/
     <name>/
-      <module>.py           # self-describing: one function, name/docstring/__version__
+      <module>.py           # self-describing: one function, name/docstring/__group__
     <doc-skill-name>/
       SKILL.md              (or skill.md) -- plain markdown, no frontmatter
       .skill_meta.json      # admin-supplied description, written at install time

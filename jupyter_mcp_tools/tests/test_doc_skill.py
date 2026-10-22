@@ -38,7 +38,6 @@ def test_validate_doc_skill_archive_happy_path(tmp_path):
     assert manifest.description == "Explains the repo."
     assert manifest.body == BODY.strip()
     assert manifest.files == ("references/notes.md",)
-    assert manifest.version == "1.0.0"
     assert manifest.group == "docs"
 
 
