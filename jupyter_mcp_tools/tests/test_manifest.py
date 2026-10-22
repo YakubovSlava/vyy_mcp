@@ -79,6 +79,19 @@ def test_custom_version_picked_up(make_archive):
     assert manifest.version == "2.3.1"
 
 
+def test_group_picked_up(make_archive):
+    module = '__group__ = "networking"\n\n' + VALID_MODULE
+    archive = make_archive("greet", module)
+    manifest = validate_archive(archive)
+    assert manifest.group == "networking"
+
+
+def test_group_defaults_to_empty(make_archive):
+    archive = make_archive("greet", VALID_MODULE)
+    manifest = validate_archive(archive)
+    assert manifest.group == ""
+
+
 def test_path_traversal_rejected(tmp_path):
     archive = tmp_path / "evil.zip"
     with zipfile.ZipFile(archive, "w") as zf:

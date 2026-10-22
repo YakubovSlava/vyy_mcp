@@ -84,8 +84,9 @@ def sync_tools(app: FastMCP, shared_dir: Path) -> None:
         # name, updated code) take effect without a server restart.
         if name in existing_names:
             app.remove_tool(name)
-        app.add_tool(entrypoint, name=manifest.name, description=manifest.description)
-        logger.info("registered tool: %s (v%s)", manifest.name, manifest.version)
+        description = f"[{manifest.group}] {manifest.description}" if manifest.group else manifest.description
+        app.add_tool(entrypoint, name=manifest.name, description=description)
+        logger.info("registered tool: %s (v%s, group=%r)", manifest.name, manifest.version, manifest.group)
 
 
 class LogMCPUserMiddleware(BaseHTTPMiddleware):

@@ -31,12 +31,21 @@ def _make_zip(tmp_path, name, skill_md=BODY, extra_files=None):
 
 def test_validate_doc_skill_archive_happy_path(tmp_path):
     archive = _make_zip(tmp_path, "ok", extra_files={"references/notes.md": "notes"})
-    manifest = validate_doc_skill_archive(archive, name="repo-explainer", description="Explains the repo.")
+    manifest = validate_doc_skill_archive(
+        archive, name="repo-explainer", description="Explains the repo.", group="docs"
+    )
     assert manifest.name == "repo-explainer"
     assert manifest.description == "Explains the repo."
     assert manifest.body == BODY.strip()
     assert manifest.files == ("references/notes.md",)
     assert manifest.version == "1.0.0"
+    assert manifest.group == "docs"
+
+
+def test_validate_doc_skill_archive_group_defaults_to_empty(tmp_path):
+    archive = _make_zip(tmp_path, "ok")
+    manifest = validate_doc_skill_archive(archive, name="repo-explainer", description="Explains the repo.")
+    assert manifest.group == ""
 
 
 def test_validate_doc_skill_archive_requires_name(tmp_path):
@@ -92,12 +101,25 @@ def test_validate_doc_skill_dir(tmp_path):
     (skill_dir / "references").mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(BODY)
     (skill_dir / "references" / "notes.md").write_text("notes")
-    write_meta(skill_dir, "Explains the repo.")
+    write_meta(skill_dir, description="Explains the repo.", group="docs")
 
     manifest = validate_doc_skill_dir(skill_dir)
     assert manifest.name == "repo-explainer"
     assert manifest.description == "Explains the repo."
     assert manifest.files == ("references/notes.md",)
+    assert manifest.group == "docs"
+
+
+def test_validate_doc_skill_dir_missing_group_in_legacy_meta_defaults_to_empty(tmp_path):
+    # .skill_meta.json files written before `group` existed only have
+    # "description" -- must not break re-reading them.
+    skill_dir = tmp_path / "old-skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(BODY)
+    (skill_dir / ".skill_meta.json").write_text('{"description": "Legacy."}')
+
+    manifest = validate_doc_skill_dir(skill_dir)
+    assert manifest.group == ""
 
 
 def test_validate_doc_skill_dir_missing_skill_md(tmp_path):
@@ -127,5 +149,8 @@ def test_validate_doc_skill_dir_invalid_meta_json(tmp_path):
 def test_write_meta_round_trips(tmp_path):
     skill_dir = tmp_path / "s"
     skill_dir.mkdir()
-    write_meta(skill_dir, "hello")
-    assert json.loads((skill_dir / ".skill_meta.json").read_text()) == {"description": "hello"}
+    write_meta(skill_dir, description="hello", group="networking")
+    assert json.loads((skill_dir / ".skill_meta.json").read_text()) == {
+        "description": "hello",
+        "group": "networking",
+    }

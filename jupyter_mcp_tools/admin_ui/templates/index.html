@@ -41,17 +41,21 @@
 <div class="banner err" style="margin-bottom:1.25rem;">Только просмотр: эта админка запущена с <code>MCP_TOOLS_READ_ONLY=1</code> — установка, удаление и редактирование навыков отключены.</div>
 {% endif %}
 <p class="section-title">Навыки</p>
+{% if tools %}
+<input type="search" id="skillSearch" class="skill-search" placeholder="Искать по имени, описанию или группе…" oninput="filterSkills(this.value)" />
+{% endif %}
 <div class="card">
   {% if tools %}
     {% for t in tools %}
-    <div class="skill-row">
+    <div class="skill-row" data-search="{{ (t.name + ' ' + t.description + ' ' + (t.group or '')) | lower }}">
       <span class="skill-name">{{ t.name }}</span>
+      {% if t.group %}<span class="skill-group">{{ t.group }}</span>{% endif %}
       <span class="skill-kind kind-{{ t.kind }}">{{ "SKILL.md" if t.kind == "doc" else "код" }}</span>
       <span class="skill-version">v{{ t.version }}</span>
       <span class="skill-desc">{{ t.description }}</span>
       {% if not read_only %}
       {% if t.kind == "doc" %}
-      <button type="button" class="edit-btn" data-name="{{ t.name }}" data-description="{{ t.description }}" onclick="openEditDescription(this)">Редактировать</button>
+      <button type="button" class="edit-btn" data-name="{{ t.name }}" data-description="{{ t.description }}" data-group="{{ t.group or '' }}" onclick="openEditDescription(this)">Редактировать</button>
       {% endif %}
       <form method="post" action="tools/{{ t.name }}/delete" onsubmit="return confirm('Удалить {{ t.name }} для всех пользователей?');">
         <button type="submit" class="remove-btn">Удалить</button>
@@ -59,6 +63,7 @@
       {% endif %}
     </div>
     {% endfor %}
+    <div class="empty-state" id="skillSearchEmpty" style="display:none;">Ничего не найдено по этому запросу.</div>
   {% else %}
     <div class="empty-state">
       <div class="glyph">＋</div>
@@ -131,7 +136,11 @@
       Описание
       <input type="text" name="description" placeholder="Когда и для чего использовать этот навык" />
     </label>
-    <p style="margin-top:-0.5rem">Имя и описание нужны только для навыков в формате <code>SKILL.md</code> — для <code>.py</code>-навыков они берутся из самой функции и игнорируются здесь.</p>
+    <label>
+      Группа <span style="font-weight:400;color:var(--muted);">(необязательно)</span>
+      <input type="text" name="group" placeholder="например, networking" />
+    </label>
+    <p style="margin-top:-0.5rem">Имя/описание/группа нужны только для навыков в формате <code>SKILL.md</code> — для <code>.py</code>-навыков они берутся из самой функции и модуля (<code>__group__ = "..."</code>) и игнорируются здесь.</p>
     <label class="check">
       <input type="checkbox" name="overwrite" value="true" />
       перезаписать, если уже существует
@@ -156,6 +165,10 @@
       <input type="text" name="description" placeholder="Когда и для чего использовать этот навык" required />
     </label>
     <label>
+      Группа <span style="font-weight:400;color:var(--muted);">(необязательно)</span>
+      <input type="text" name="group" placeholder="например, networking" />
+    </label>
+    <label>
       Текст навыка (Markdown)
       <textarea name="body" rows="12" placeholder="# Название навыка&#10;&#10;Инструкции для агента..." required></textarea>
     </label>
@@ -172,11 +185,15 @@
 
 <dialog id="editDescriptionDialog">
   <form method="post" id="editDescriptionForm" class="dialog-body">
-    <h3>Редактировать описание</h3>
+    <h3>Редактировать навык</h3>
     <p>Навык: <strong id="editSkillName"></strong> — доступно только для навыков в формате <code>SKILL.md</code>.</p>
     <label>
       Описание
       <textarea name="description" id="editDescriptionInput" rows="4" required></textarea>
+    </label>
+    <label>
+      Группа <span style="font-weight:400;color:var(--muted);">(необязательно)</span>
+      <input type="text" name="group" id="editGroupInput" placeholder="например, networking" />
     </label>
     <div class="dialog-actions">
       <button type="button" class="btn ghost" onclick="editDescriptionDialog.close()">Отмена</button>
@@ -188,11 +205,24 @@
 <script>
   function openEditDescription(btn) {
     const name = btn.dataset.name;
-    const description = btn.dataset.description;
     document.getElementById("editDescriptionForm").action = "tools/" + encodeURIComponent(name) + "/edit-description";
     document.getElementById("editSkillName").textContent = name;
-    document.getElementById("editDescriptionInput").value = description;
+    document.getElementById("editDescriptionInput").value = btn.dataset.description;
+    document.getElementById("editGroupInput").value = btn.dataset.group || "";
     editDescriptionDialog.showModal();
+  }
+
+  function filterSkills(query) {
+    const needle = query.trim().toLowerCase();
+    const rows = document.querySelectorAll(".skill-row");
+    let visibleCount = 0;
+    rows.forEach((row) => {
+      const matches = !needle || row.dataset.search.includes(needle);
+      row.style.display = matches ? "" : "none";
+      if (matches) visibleCount += 1;
+    });
+    const empty = document.getElementById("skillSearchEmpty");
+    if (empty) empty.style.display = visibleCount === 0 ? "" : "none";
   }
 </script>
 {% endblock %}

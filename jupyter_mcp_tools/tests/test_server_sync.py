@@ -110,3 +110,26 @@ def test_doc_skill_round_trip(shared_dir, tmp_path):
 
     content, _ = asyncio.run(app.call_tool("repo-explainer", {"file": "nope.md"}))
     assert "not a file in this skill" in content[0].text
+
+
+def test_sync_prefixes_description_with_group(make_archive, shared_dir):
+    app = build_app(shared_dir)
+
+    module = '__group__ = "networking"\n\n' + VALID_MODULE
+    archive = make_archive("greet", module)
+    registry.install_tool(archive, shared_dir)
+    sync_tools(app, shared_dir)
+
+    tools = app._tool_manager.list_tools()
+    assert tools[0].description.startswith("[networking] ")
+
+
+def test_sync_no_group_prefix_when_group_is_empty(make_archive, shared_dir):
+    app = build_app(shared_dir)
+
+    archive = make_archive("greet", VALID_MODULE)
+    registry.install_tool(archive, shared_dir)
+    sync_tools(app, shared_dir)
+
+    tools = app._tool_manager.list_tools()
+    assert not tools[0].description.startswith("[")

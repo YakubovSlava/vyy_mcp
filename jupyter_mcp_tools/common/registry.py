@@ -8,7 +8,7 @@ Shared layout under ``shared_dir``::
         ...
       <other-name>/
         SKILL.md              # doc skill: see common/doc_skill.py
-        .skill_meta.json      # admin-supplied description, written at install time
+        .skill_meta.json      # admin-supplied description/group, written at install time
         ...
 
 Each installed folder is one of two bundle kinds, detected by whether it
@@ -109,13 +109,16 @@ def _normalized_archive(archive_path: Path):
             tmp_path.unlink(missing_ok=True)
 
 
-def _validate_archive(archive_path: Path, *, name: str | None, description: str | None) -> AnyManifest:
+def _validate_archive(
+    archive_path: Path, *, name: str | None, description: str | None, group: str | None
+) -> AnyManifest:
     """Detect whether `archive_path` is a doc skill (SKILL.md) or a code
     skill (a single .py file at its root) and validate it accordingly.
 
-    `name`/`description` only matter for the doc-skill case (a code
-    skill's name/description are always derived from its function) — see
-    common/doc_skill.py for why a doc skill needs them supplied at all.
+    `name`/`description`/`group` only matter for the doc-skill case (a
+    code skill's name/description/group are always derived from its
+    function/module) — see common/doc_skill.py for why a doc skill needs
+    them supplied at all.
     """
     if not zipfile.is_zipfile(archive_path):
         raise ToolValidationError("file is not a valid zip archive")
@@ -124,7 +127,9 @@ def _validate_archive(archive_path: Path, *, name: str | None, description: str 
         names = zf.namelist()
 
     if find_skill_md_name(names) is not None:
-        return validate_doc_skill_archive(archive_path, name=name or "", description=description or "")
+        return validate_doc_skill_archive(
+            archive_path, name=name or "", description=description or "", group=group or ""
+        )
     if root_python_files(names):
         return validate_archive(archive_path)
     raise ToolValidationError(
@@ -139,19 +144,21 @@ def install_tool(
     *,
     name: str | None = None,
     description: str | None = None,
+    group: str | None = None,
 ) -> AnyManifest:
     """Validate and install a skill archive into the shared directory.
 
     `name`/`description` are required for a doc-skill (SKILL.md) upload —
-    the admin supplies them in the upload form; ignored for a code skill,
-    whose name/description always come from its function.
+    the admin supplies them in the upload form; `group` is optional for a
+    doc-skill upload. All three are ignored for a code skill, whose
+    name/description/group always come from its function/module.
 
     Returns the installed skill's manifest. Raises ToolValidationError if
     the archive is malformed, or ToolAlreadyExistsError if a skill with the
     same name already exists and overwrite=False.
     """
     with _normalized_archive(archive_path) as normalized:
-        manifest = _validate_archive(normalized, name=name, description=description)
+        manifest = _validate_archive(normalized, name=name, description=description, group=group)
 
         dest = tools_dir(shared_dir) / manifest.name
         if dest.exists() and not overwrite:
@@ -165,7 +172,7 @@ def install_tool(
                 zf.extractall(tmp_path)
 
             if isinstance(manifest, DocSkillManifest):
-                write_meta(tmp_path, manifest.description)
+                write_meta(tmp_path, description=manifest.description, group=manifest.group)
 
             tools_dir(shared_dir).mkdir(parents=True, exist_ok=True)
             if dest.exists():
@@ -176,7 +183,7 @@ def install_tool(
 
 
 def create_doc_skill(
-    shared_dir: Path, *, name: str, description: str, body: str, overwrite: bool = False
+    shared_dir: Path, *, name: str, description: str, body: str, group: str = "", overwrite: bool = False
 ) -> DocSkillManifest:
     """Create a brand-new doc skill directly from admin-typed text in the
     admin UI — no archive upload involved at all."""
@@ -189,7 +196,7 @@ def create_doc_skill(
     tools_dir(shared_dir).mkdir(parents=True, exist_ok=True)
     if dest.exists():
         shutil.rmtree(dest)
-    return create_doc_skill_dir(dest, description=description, body=body)
+    return create_doc_skill_dir(dest, description=description, body=body, group=group)
 
 
 def _load_installed(entry: Path) -> AnyManifest | None:
@@ -228,13 +235,13 @@ def remove_tool(shared_dir: Path, name: str) -> None:
     shutil.rmtree(dest)
 
 
-def update_doc_skill_description(shared_dir: Path, name: str, description: str) -> DocSkillManifest:
-    """Edit an already-installed doc skill's description in place.
+def update_doc_skill_metadata(shared_dir: Path, name: str, *, description: str, group: str = "") -> DocSkillManifest:
+    """Edit an already-installed doc skill's description/group in place.
 
-    Code skills have no equivalent — their description is the function's
-    own docstring, edited by editing the `.py` file directly (see
-    common/manifest.py); there's no separate description field to update
-    out of band for them.
+    Code skills have no equivalent — their description/group are the
+    function's own docstring and the module's `__group__`, edited by
+    editing the `.py` file directly (see common/manifest.py); there's no
+    separate metadata to update out of band for them.
     """
     if not description:
         raise ToolValidationError("description must not be empty")
@@ -245,10 +252,12 @@ def update_doc_skill_description(shared_dir: Path, name: str, description: str) 
 
     manifest = _load_installed(dest)
     if not isinstance(manifest, DocSkillManifest):
-        raise ToolValidationError(f"'{name}' is not a doc skill — only a SKILL.md bundle's description can be edited")
+        raise ToolValidationError(f"'{name}' is not a doc skill — only a SKILL.md bundle's metadata can be edited")
 
-    write_meta(dest, description)
-    return DocSkillManifest(name=name, description=description, body=manifest.body, files=manifest.files)
+    write_meta(dest, description=description, group=group)
+    return DocSkillManifest(
+        name=name, description=description, body=manifest.body, group=group, files=manifest.files
+    )
 
 
 def manifest_to_dict(manifest: AnyManifest) -> dict:

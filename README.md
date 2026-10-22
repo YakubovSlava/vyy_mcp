@@ -342,6 +342,8 @@ def echo(text: str, shout: bool = False) -> str:
   same as any other FastMCP tool — nothing else to declare.
 - The **version** is an optional module-level `__version__ = "..."`
   string literal; defaults to `"1.0.0"` if absent.
+- The **group** is an optional module-level `__group__ = "..."` string
+  literal — see "Groups and search" below.
 - The archive/folder must contain exactly one `.py` file at its root —
   more than one, or a module with more than one top-level function, is
   rejected with a clear error (there's no manifest left to say which one
@@ -382,6 +384,7 @@ name/docstring plays:
 - `description` — becomes the MCP tool's own description, so a connecting
   agent can decide when to call it purely from `tools/list` without
   reading the body first.
+- `group` — optional; see "Groups and search" below.
 
 The admin-supplied description is persisted to a small
 `.skill_meta.json` sidecar file inside the installed skill's folder, so
@@ -395,12 +398,28 @@ of those paths>"` returns that specific file's content. See
 `examples/repo_explainer/` for a complete example and `mcp_server/server.py`'s
 `_make_doc_skill_tool` for the implementation.
 
-Once installed, an already-installed doc skill's description can be
-edited in place — "Редактировать" on its row in the Skills tab — without
-re-uploading the archive; the `SKILL.md` body and every other file in
-the bundle are left untouched, only `.skill_meta.json` changes. There's
-no equivalent for code skills: their description is the function's own
-docstring, edited by editing the `.py` file directly.
+Once installed, an already-installed doc skill's description/group can
+be edited in place — "Редактировать" on its row in the Skills tab —
+without re-uploading the archive; the `SKILL.md` body and every other
+file in the bundle are left untouched, only `.skill_meta.json` changes.
+There's no equivalent for code skills: their description/group are the
+function's own docstring and the module's `__group__`, edited by editing
+the `.py` file directly.
+
+### Groups and search
+
+Any skill (code or doc) can be tagged with a `group` — free-form text,
+optional. It does two things:
+
+- The Skills tab gets a search box that matches against name,
+  description, and group together, which matters once there are more
+  than a handful of skills.
+- The group is also visible to a connecting agent: `mcp_server/server.py`'s
+  `sync_tools()` prefixes the registered tool's own MCP description with
+  `[group]` when one is set. The idea is that an agent can judge
+  relevance from the group tag in `tools/list` without having to spend
+  context reading every tool's full description, including ones from
+  categories it clearly doesn't need for the current task.
 
 A doc skill doesn't need an archive at all: "✎ Написать навык" next to
 "+" on the Skills tab opens a form with **Имя**/**Описание**/a

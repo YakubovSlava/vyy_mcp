@@ -626,6 +626,48 @@ available to every user of the server — without restarting anything.
   overwrite flag) as the existing `/tools/upload` pair, since from the
   main host's perspective this is just another way to end up with a new
   `DocSkillManifest` on disk.
+- **Skills can be tagged with a `group` for search *and* so the agent
+  itself sees it**, per explicit decision (both bundle kinds, asked via
+  AskUserQuestion) and a second explicit requirement in the same
+  request: "видно и агенту, чтобы он не перегружал контекст избыточной
+  информацией" (visible to the agent too, so it doesn't overload its
+  context with excessive information). `group` is a plain string field
+  on both `Manifest` and `DocSkillManifest` — for a code skill it comes
+  from an optional module-level `__group__ = "..."` literal (the same
+  AST-inspection pattern `__version__` already used, extracted via a
+  newly-generalized `_extract_module_string(tree, var_name, default)`
+  rather than two near-duplicate functions); for a doc skill it's a form
+  field alongside name/description, persisted in `.skill_meta.json`
+  (which now stores `{"description", "group"}` instead of just
+  `{"description"}` — `validate_doc_skill_dir` defaults a missing
+  `"group"` key to `""` so skills installed before this feature existed
+  keep loading correctly).
+- **The MCP-visible effect is a `[group] ` prefix on the tool's own
+  `description`, nothing more structural.** Considered (and rejected)
+  building a two-tier discovery flow — a small set of "group" meta-tools
+  the agent calls first, with the actual skills hidden behind them — as
+  the more thorough way to literally reduce what's in `tools/list`. MCP
+  has no native protocol-level concept of tool categories, so that would
+  have meant either collapsing every code skill's distinct, type-hinted
+  parameter schema behind one generic dispatcher tool (losing the
+  FastMCP-inferred schema accuracy this project has relied on since the
+  very first code-skill design decision above), or maintaining two
+  different calling conventions for skills depending on whether they're
+  grouped. A plain description prefix costs nothing architecturally,
+  requires no new tool-call round trip to discover what's in a group,
+  and still lets an agent skip reading full descriptions for tools whose
+  `[group]` tag it can already tell aren't relevant — which is what was
+  actually asked for. `sync_tools()` in `mcp_server/server.py` builds it
+  as `f"[{manifest.group}] {manifest.description}"` when `group` is set,
+  the plain description otherwise.
+- **The admin UI's own "search by group" is a client-side text filter,
+  not a server round trip.** A `data-search` attribute per skill row
+  (lowercased `name + description + group`) and one `oninput` handler
+  (`filterSkills()`) toggling row visibility — consistent with this
+  project's existing minimal-JS, no-framework approach to every other UI
+  interaction (dialogs via native `<dialog>`, the edit button's
+  `data-*`-attribute pattern it already established). No new route, no
+  new template context needed beyond what `tools` already carries.
 
 ## Shared tools directory layout
 

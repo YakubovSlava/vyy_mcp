@@ -338,14 +338,17 @@ def test_edit_doc_skill_description(client, tmp_path):
         data={"name": "doc-skill", "description": "Original description."},
     )
 
-    r = client.post("/tools/doc-skill/edit-description", data={"description": "Updated description."})
-    assert "обновлено" in r.text
+    r = client.post(
+        "/tools/doc-skill/edit-description", data={"description": "Updated description.", "group": "networking"}
+    )
+    assert "обновлён" in r.text
 
     from jupyter_mcp_tools.common.config import load_config
     from jupyter_mcp_tools.common.registry import list_tools
 
     tools = list_tools(load_config().shared_dir_path)
     assert tools[0].description == "Updated description."
+    assert tools[0].group == "networking"
 
 
 def test_edit_button_data_attributes_survive_quotes_in_description(client, tmp_path):

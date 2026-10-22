@@ -15,6 +15,11 @@ the manifest:
 - ``"<module>:<function>"`` is computed automatically as the entrypoint
 - an optional module-level ``__version__ = "..."`` string literal sets
   the version; it defaults to "1.0.0" if absent
+- an optional module-level ``__group__ = "..."`` string literal tags the
+  skill with a group/category, shown in the admin UI and visible to a
+  connecting agent (as a ``[group]`` prefix on the tool's own
+  description — see ``mcp_server/server.py``), so it can judge relevance
+  without having to read every tool's full description; empty if absent
 - the MCP input schema is inferred from the function's type hints, same
   as any other FastMCP tool — there's nothing else to declare
 
@@ -45,6 +50,7 @@ class Manifest:
     version: str
     description: str
     entrypoint: str
+    group: str = ""
 
     @property
     def module_name(self) -> str:
@@ -70,19 +76,22 @@ def _check_safe_members(zf: zipfile.ZipFile) -> None:
             raise ToolValidationError(f"archive contains unsafe path: {member}")
 
 
-def _extract_version(tree: ast.Module) -> str:
+def _extract_module_string(tree: ast.Module, var_name: str, default: str = "") -> str:
+    """Read a module-level ``<var_name> = "..."`` string literal assignment,
+    if present (used for the optional ``__version__``/``__group__``
+    conventions) — never executes the module, just inspects its AST."""
     for node in ast.iter_child_nodes(tree):
         if not isinstance(node, ast.Assign):
             continue
         for target in node.targets:
             if (
                 isinstance(target, ast.Name)
-                and target.id == "__version__"
+                and target.id == var_name
                 and isinstance(node.value, ast.Constant)
                 and isinstance(node.value.value, str)
             ):
                 return node.value.value
-    return DEFAULT_VERSION
+    return default
 
 
 def _manifest_from_source(filename: str, source: bytes | str) -> Manifest:
@@ -116,9 +125,10 @@ def _manifest_from_source(filename: str, source: bytes | str) -> Manifest:
 
     return Manifest(
         name=func.name,
-        version=_extract_version(tree),
+        version=_extract_module_string(tree, "__version__", DEFAULT_VERSION),
         description=description.strip(),
         entrypoint=f"{filename[:-3]}:{func.name}",
+        group=_extract_module_string(tree, "__group__"),
     )
 
 

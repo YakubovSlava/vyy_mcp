@@ -132,7 +132,7 @@ def test_update_doc_skill_description(tmp_path, shared_dir):
     archive = _make_doc_skill_archive(tmp_path)
     _install_doc_skill(archive, shared_dir)
 
-    manifest = registry.update_doc_skill_description(shared_dir, "repo-explainer", "New description.")
+    manifest = registry.update_doc_skill_metadata(shared_dir, "repo-explainer", description="New description.")
     assert manifest.description == "New description."
 
     tools = registry.list_tools(shared_dir)
@@ -143,21 +143,21 @@ def test_update_doc_skill_description(tmp_path, shared_dir):
 
 def test_update_doc_skill_description_missing_tool_raises(shared_dir):
     with pytest.raises(ToolNotFoundError):
-        registry.update_doc_skill_description(shared_dir, "nope", "desc")
+        registry.update_doc_skill_metadata(shared_dir, "nope", description="desc")
 
 
 def test_update_doc_skill_description_empty_raises(tmp_path, shared_dir):
     archive = _make_doc_skill_archive(tmp_path)
     _install_doc_skill(archive, shared_dir)
     with pytest.raises(ToolValidationError, match="must not be empty"):
-        registry.update_doc_skill_description(shared_dir, "repo-explainer", "")
+        registry.update_doc_skill_metadata(shared_dir, "repo-explainer", description="")
 
 
 def test_update_doc_skill_description_rejects_code_skill(make_archive, shared_dir):
     archive = make_archive("greet", VALID_MODULE)
     registry.install_tool(archive, shared_dir)
     with pytest.raises(ToolValidationError, match="not a doc skill"):
-        registry.update_doc_skill_description(shared_dir, "greet", "desc")
+        registry.update_doc_skill_metadata(shared_dir, "greet", description="desc")
 
 
 def test_create_doc_skill_from_text(shared_dir):
@@ -238,3 +238,26 @@ def test_install_archive_without_wrapping_folder_still_works(tmp_path, shared_di
 
     manifest = registry.install_tool(archive, shared_dir)
     assert manifest.name == "greet"
+
+
+def test_create_doc_skill_with_group(shared_dir):
+    manifest = registry.create_doc_skill(
+        shared_dir, name="my-skill", description="desc", body="body text", group="networking"
+    )
+    assert manifest.group == "networking"
+
+    tools = registry.list_tools(shared_dir)
+    assert tools[0].group == "networking"
+
+
+def test_update_doc_skill_metadata_changes_group(tmp_path, shared_dir):
+    archive = _make_doc_skill_archive(tmp_path)
+    _install_doc_skill(archive, shared_dir)
+
+    manifest = registry.update_doc_skill_metadata(
+        shared_dir, "repo-explainer", description="New description.", group="networking"
+    )
+    assert manifest.group == "networking"
+
+    tools = registry.list_tools(shared_dir)
+    assert tools[0].group == "networking"

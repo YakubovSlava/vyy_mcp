@@ -410,6 +410,7 @@ async def upload_tool(
     overwrite: bool = Form(False),
     name: str = Form(""),
     description: str = Form(""),
+    group: str = Form(""),
     _admin: str | None = Depends(require_admin_page),
 ):
     if READ_ONLY:
@@ -426,7 +427,12 @@ async def upload_tool(
                     f"{MAIN_HOST}/api/tools",
                     CHILD_USER,
                     CHILD_PASSWORD,
-                    fields={"overwrite": "true" if overwrite else "false", "name": name, "description": description},
+                    fields={
+                        "overwrite": "true" if overwrite else "false",
+                        "name": name,
+                        "description": description,
+                        "group": group,
+                    },
                     files={"archive": str(tmp_path)},
                     insecure=INSECURE_TLS,
                 )
@@ -451,7 +457,12 @@ async def upload_tool(
         shared_dir = config.shared_dir_path
         try:
             manifest = registry.install_tool(
-                tmp_path, shared_dir, overwrite=overwrite, name=name or None, description=description or None
+                tmp_path,
+                shared_dir,
+                overwrite=overwrite,
+                name=name or None,
+                description=description or None,
+                group=group or None,
             )
         except (ToolValidationError, ToolAlreadyExistsError) as exc:
             return _redirect_to_root(request, error=str(exc))
@@ -470,6 +481,7 @@ def create_doc_skill_route(
     name: str = Form(...),
     description: str = Form(...),
     body: str = Form(...),
+    group: str = Form(""),
     overwrite: bool = Form(False),
     _admin: str | None = Depends(require_admin_page),
 ):
@@ -490,6 +502,7 @@ def create_doc_skill_route(
                     "name": name,
                     "description": description,
                     "body": body,
+                    "group": group,
                     "overwrite": "true" if overwrite else "false",
                 },
                 insecure=INSECURE_TLS,
@@ -511,7 +524,7 @@ def create_doc_skill_route(
     shared_dir = config.shared_dir_path
     try:
         manifest = registry.create_doc_skill(
-            shared_dir, name=name, description=description, body=body, overwrite=overwrite
+            shared_dir, name=name, description=description, body=body, group=group, overwrite=overwrite
         )
     except (ToolValidationError, ToolAlreadyExistsError) as exc:
         return _redirect_to_root(request, error=str(exc))
@@ -567,12 +580,14 @@ def edit_doc_skill_description(
     request: Request,
     name: str,
     description: str = Form(...),
+    group: str = Form(""),
     _admin: str | None = Depends(require_admin_page),
 ):
-    """Edits a doc skill's (SKILL.md bundle's) description in place — the
-    only skill metadata that's ever edited without re-uploading the whole
-    archive. Code skills have no equivalent: their description is the
-    function's own docstring, edited by editing the .py file directly."""
+    """Edits a doc skill's (SKILL.md bundle's) description/group in place
+    — the only skill metadata that's ever edited without re-uploading the
+    whole archive. Code skills have no equivalent: their description is
+    the function's own docstring and its group is `__group__`, both
+    edited by editing the .py file directly."""
     if READ_ONLY:
         return _redirect_to_root(request, error=READ_ONLY_MESSAGE)
     if MAIN_HOST:
@@ -581,7 +596,7 @@ def edit_doc_skill_description(
                 f"{MAIN_HOST}/api/tools/{name}/edit-description",
                 CHILD_USER,
                 CHILD_PASSWORD,
-                fields={"description": description},
+                fields={"description": description, "group": group},
                 insecure=INSECURE_TLS,
             )
         except curl_client.CurlError as exc:
@@ -594,7 +609,7 @@ def edit_doc_skill_description(
             return _redirect_to_root(
                 request, error=payload.get("error", f"Основной хост вернул HTTP {resp.status}.")
             )
-        message = f"Описание «{name}» обновлено."
+        message = f"«{name}» обновлён."
         if payload.get("git_push_error"):
             message += f" Внимание: git push на основном хосте не выполнен ({payload['git_push_error']})."
         return _redirect_to_root(request, message=message)
@@ -602,10 +617,10 @@ def edit_doc_skill_description(
     config = load_config()
     shared_dir = config.shared_dir_path
     try:
-        registry.update_doc_skill_description(shared_dir, name, description)
+        registry.update_doc_skill_metadata(shared_dir, name, description=description, group=group)
     except (ToolValidationError, ToolNotFoundError) as exc:
         return _redirect_to_root(request, error=str(exc))
-    message = f"Описание «{name}» обновлено."
+    message = f"«{name}» обновлён."
     push_error = _maybe_git_push(config, shared_dir, f"Edit skill '{name}' description")
     if push_error:
         message += f" Внимание: git push не выполнен ({push_error})."
@@ -638,6 +653,7 @@ async def api_upload_tool(
     overwrite: bool = Form(False),
     name: str = Form(""),
     description: str = Form(""),
+    group: str = Form(""),
     _admin: str | None = Depends(require_admin_api),
 ):
     if READ_ONLY:
@@ -652,7 +668,12 @@ async def api_upload_tool(
 
     try:
         manifest = registry.install_tool(
-            tmp_path, shared_dir, overwrite=overwrite, name=name or None, description=description or None
+            tmp_path,
+            shared_dir,
+            overwrite=overwrite,
+            name=name or None,
+            description=description or None,
+            group=group or None,
         )
     except ToolValidationError as exc:
         return JSONResponse(status_code=400, content={"error": str(exc)})
@@ -670,6 +691,7 @@ def api_create_doc_skill(
     name: str = Form(...),
     description: str = Form(...),
     body: str = Form(...),
+    group: str = Form(""),
     overwrite: bool = Form(False),
     _admin: str | None = Depends(require_admin_api),
 ):
@@ -680,7 +702,7 @@ def api_create_doc_skill(
     shared_dir = config.shared_dir_path
     try:
         manifest = registry.create_doc_skill(
-            shared_dir, name=name, description=description, body=body, overwrite=overwrite
+            shared_dir, name=name, description=description, body=body, group=group, overwrite=overwrite
         )
     except ToolValidationError as exc:
         return JSONResponse(status_code=400, content={"error": str(exc)})
@@ -708,7 +730,10 @@ def api_delete_tool(name: str, _admin: str | None = Depends(require_admin_api)):
 
 @app.post("/api/tools/{name}/edit-description")
 def api_edit_doc_skill_description(
-    name: str, description: str = Form(...), _admin: str | None = Depends(require_admin_api)
+    name: str,
+    description: str = Form(...),
+    group: str = Form(""),
+    _admin: str | None = Depends(require_admin_api),
 ):
     if READ_ONLY:
         return JSONResponse(status_code=403, content={"error": READ_ONLY_MESSAGE})
@@ -716,7 +741,7 @@ def api_edit_doc_skill_description(
     config = load_config()
     shared_dir = config.shared_dir_path
     try:
-        registry.update_doc_skill_description(shared_dir, name, description)
+        registry.update_doc_skill_metadata(shared_dir, name, description=description, group=group)
     except ToolNotFoundError as exc:
         return JSONResponse(status_code=404, content={"error": str(exc)})
     except ToolValidationError as exc:

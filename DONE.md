@@ -1180,3 +1180,50 @@
   upload-with-wrapping-folder case. `test_remote_mode.py` gained a
   child-relay round trip for the new create route. Full suite: 137/137
   passing.
+
+## 2026-10-22 (skill groups + search, visible to the agent too)
+
+- Per explicit request ("разделять на подгруппы, чтобы можно было по
+  группам искать релевантное"), with two follow-up decisions (asked via
+  AskUserQuestion: groups for both code and doc skills; group visible to
+  the agent too, "чтобы он не перегружал контекст избыточной
+  информацией"), added an optional `group` field to both bundle kinds.
+  Code skills: an optional module-level `__group__ = "..."` string
+  literal, same AST-inspection convention `__version__` already used —
+  generalized `manifest.py`'s `_extract_version()` into
+  `_extract_module_string(tree, var_name, default)` so both reuse one
+  function instead of two near-duplicates. Doc skills: a `group` form
+  field alongside name/description, persisted in `.skill_meta.json`
+  (now `{"description", "group"}` — `validate_doc_skill_dir` defaults a
+  missing `"group"` key to `""` so skills installed before this feature
+  keep loading).
+- The agent-visible effect: `mcp_server/server.py`'s `sync_tools()` now
+  registers a tool's description as `f"[{group}] {description}"` when
+  `group` is set, plain `description` otherwise — a connecting agent
+  sees the group right in `tools/list` and can judge relevance without
+  spending context reading full descriptions of tools in clearly
+  irrelevant categories. Considered and rejected a heavier two-tier
+  "group meta-tool" discovery flow (see PLAN.md) — MCP has no native
+  category concept, and collapsing every code skill behind one generic
+  dispatcher would've thrown away the per-function, type-hint-derived
+  input schema this project has relied on from the start.
+- Admin UI: `registry.update_doc_skill_description()` renamed to
+  `update_doc_skill_metadata()` (now takes `description`/`group`
+  together); `install_tool()`/`create_doc_skill()` gained a `group`
+  parameter. `templates/index.html`: a "Группа" field in the upload
+  form, the "Написать навык" form, and the edit dialog (extended to
+  edit group alongside description); a green group badge per skill row;
+  and a search box above the skill list (`#skillSearch`) that filters
+  rows client-side via a `data-search` attribute (lowercased name +
+  description + group) and a plain `oninput` handler — no new route, no
+  server round trip, matching this project's existing minimal-JS
+  approach everywhere else in the UI.
+- Tests: `test_manifest.py` (`__group__` picked up / defaults to empty),
+  `test_doc_skill.py` (group round-trips through archive validation and
+  `.skill_meta.json`, including a legacy-meta-file-without-group
+  compatibility case), `test_registry.py` (`create_doc_skill`/
+  `update_doc_skill_metadata` with a group), `test_server_sync.py` (the
+  `[group]` prefix appears when set, doesn't when it isn't). Updated
+  every existing caller of the renamed
+  `update_doc_skill_description`/the now-keyword-only `write_meta()`.
+  Full suite: 145/145 passing.
