@@ -138,9 +138,14 @@
     </label>
     <label>
       Группа <span style="font-weight:400;color:var(--muted);">(необязательно)</span>
-      <input type="text" name="group" placeholder="например, networking" />
+      <select name="group">
+        <option value="">— без группы —</option>
+        {% for gname in group_names %}
+        <option value="{{ gname }}">{{ gname }}</option>
+        {% endfor %}
+      </select>
     </label>
-    <p style="margin-top:-0.5rem">Имя/описание/группа нужны только для навыков в формате <code>SKILL.md</code> — для <code>.py</code>-навыков они берутся из самой функции и модуля (<code>__group__ = "..."</code>) и игнорируются здесь.</p>
+    <p style="margin-top:-0.5rem">Имя/описание/группа нужны только для навыков в формате <code>SKILL.md</code> — для <code>.py</code>-навыков они берутся из самой функции и модуля (<code>__group__ = "..."</code>) и игнорируются здесь. Группы создаются на вкладке «Группы».</p>
     <label class="check">
       <input type="checkbox" name="overwrite" value="true" />
       перезаписать, если уже существует
@@ -166,7 +171,12 @@
     </label>
     <label>
       Группа <span style="font-weight:400;color:var(--muted);">(необязательно)</span>
-      <input type="text" name="group" placeholder="например, networking" />
+      <select name="group">
+        <option value="">— без группы —</option>
+        {% for gname in group_names %}
+        <option value="{{ gname }}">{{ gname }}</option>
+        {% endfor %}
+      </select>
     </label>
     <label>
       Текст навыка (Markdown)
@@ -193,7 +203,12 @@
     </label>
     <label>
       Группа <span style="font-weight:400;color:var(--muted);">(необязательно)</span>
-      <input type="text" name="group" id="editGroupInput" placeholder="например, networking" />
+      <select name="group" id="editGroupInput">
+        <option value="">— без группы —</option>
+        {% for gname in group_names %}
+        <option value="{{ gname }}">{{ gname }}</option>
+        {% endfor %}
+      </select>
     </label>
     <div class="dialog-actions">
       <button type="button" class="btn ghost" onclick="editDescriptionDialog.close()">Отмена</button>

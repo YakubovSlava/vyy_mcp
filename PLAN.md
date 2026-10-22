@@ -642,24 +642,84 @@ available to every user of the server — without restarting anything.
   `{"description"}` — `validate_doc_skill_dir` defaults a missing
   `"group"` key to `""` so skills installed before this feature existed
   keep loading correctly).
-- **The MCP-visible effect is a `[group] ` prefix on the tool's own
-  `description`, nothing more structural.** Considered (and rejected)
-  building a two-tier discovery flow — a small set of "group" meta-tools
-  the agent calls first, with the actual skills hidden behind them — as
-  the more thorough way to literally reduce what's in `tools/list`. MCP
-  has no native protocol-level concept of tool categories, so that would
-  have meant either collapsing every code skill's distinct, type-hinted
-  parameter schema behind one generic dispatcher tool (losing the
-  FastMCP-inferred schema accuracy this project has relied on since the
-  very first code-skill design decision above), or maintaining two
-  different calling conventions for skills depending on whether they're
-  grouped. A plain description prefix costs nothing architecturally,
-  requires no new tool-call round trip to discover what's in a group,
-  and still lets an agent skip reading full descriptions for tools whose
-  `[group]` tag it can already tell aren't relevant — which is what was
-  actually asked for. `sync_tools()` in `mcp_server/server.py` builds it
-  as `f"[{manifest.group}] {manifest.description}"` when `group` is set,
-  the plain description otherwise.
+- **Groups are first-class, admin-created entities with their own
+  description — not just a free-text tag — and a skill assigned to a
+  *real* group is genuinely hidden from `tools/list`, collapsed behind
+  one dispatcher tool per group.** The first cut of this feature (a
+  `[group] ` prefix on the tool's own description, described below for
+  history) was explicitly called out by the user as not actually
+  reducing agent-visible context ("Ведь пока что у нас нет уменьшения
+  контекста для агентов?") — a prefix is cosmetic, `tools/list` still
+  carries every skill's full entry. The follow-up AskUserQuestion
+  confirmed both code and doc skills should get this *real* reduction,
+  accepting the tradeoff that grouped code skills lose their precise,
+  FastMCP-inferred per-parameter JSON schema. Architecture:
+  - `common/groups.py` stores `<shared_dir>/groups.json`, a flat
+    `{name: {"description": ...}}` map, with `create_group`/
+    `delete_group`/`list_groups`/`get_group` — same shape and style as
+    `common/users.py`. A `Group` is just `(name, description)`; the
+    *description is what the agent will see* as the group's MCP tool
+    description, so it's a required field at creation time.
+  - `sync_tools()` in `mcp_server/server.py` partitions all manifests
+    into "has a `group` string matching a `Group` that actually exists
+    in `groups.json`" vs. everything else. Everything else (no group,
+    or a group string that doesn't match any created `Group`) registers
+    exactly as before — one standalone FastMCP tool per skill, full
+    schema, no behavior change. This fallback is deliberate and tested
+    (`test_sync_falls_back_to_standalone_for_unrecognized_group`): typing
+    a group name that hasn't been created yet doesn't error or silently
+    drop the skill, it just doesn't get the hiding treatment yet.
+  - Skills that *do* match a real group are not registered individually
+    at all. Instead, exactly one dispatcher tool per group is registered
+    (`_make_group_tool`), named after the group, whose MCP description
+    *is* the group's own admin-authored description — this is the actual
+    context reduction: an agent doing discovery sees one entry for the
+    whole group instead of N full entries for each skill in it.
+  - The dispatcher tool takes an optional `skill: str = ""` and
+    `arguments: dict = {}`. Called with no `skill`, it returns the list
+    of skill names in the group plus, for each, a short parameter hint
+    computed via `inspect.signature()` on the loaded entrypoint
+    (`_param_hint()`) — mitigating the schema-accuracy loss by at least
+    telling the agent what to pass before it commits to a call. Called
+    with `skill=<name>, arguments={...}`, it dispatches to that skill's
+    actual function/doc content, same execution path as a direct call
+    would have used. This mirrors the progressive-disclosure pattern
+    already used for doc skills (`file=""` to list, `file=<name>` to
+    read) one level up.
+  - Groups are managed from their own admin UI page/nav tab ("Группы"),
+    not folded into the Skills page — `templates/groups.html` + `GET
+    /groups`, `POST /groups`, `POST /groups/{name}/delete` (HTML) and
+    `GET/POST /api/groups`, `POST /api/groups/{name}/delete` (JSON, what
+    a child relay's `curl` call hits). Unlike Users/Docs, which are
+    main-host-only on a relay, Groups behaves like Skills: a child relay
+    forwards reads and writes to the main host (`_remote_list_groups()`
+    mirrors `_remote_list_tools()`) rather than 404ing, since knowing
+    what groups exist (and being able to create one) matters just as
+    much from a child relay as from the main host itself. Both create
+    and delete trigger the same `_maybe_git_push` call every other
+    skill mutation does, since `groups.json` lives in `shared_dir` and
+    is just as much part of what should land in the git history as
+    `tools/`.
+  - The Skills page's "Группа" field (upload form, create-doc-skill
+    form, edit-description dialog) is a `<select>` populated from
+    `group_store.list_groups(shared_dir)` (or `_remote_list_groups()` on
+    a relay) instead of free text, so an admin picks an existing group
+    rather than guessing a spelling that won't actually match anything
+    in `groups.json`.
+  - `MCP_TOOLS_READ_ONLY=1` gates group creation/deletion exactly like
+    skill mutations.
+  - **History: the original, cosmetic-only version.** Before the above,
+    `group` was a plain string field on both `Manifest` and
+    `DocSkillManifest` (code skills via an optional module-level
+    `__group__ = "..."` literal, extracted the same AST-inspection way
+    `__version__` already was, generalized into
+    `_extract_module_string(tree, var_name, default)`; doc skills via a
+    form field persisted in `.skill_meta.json`) and `sync_tools()` built
+    the MCP-visible description as `f"[{manifest.group}] {manifest.description}"`.
+    That mechanism is still exactly how a skill *declares* which group
+    it wants to join — it just now also determines, at sync time,
+    whether that group is real enough to earn the hiding treatment
+    above, or falls back to this plain-prefix standalone registration.
 - **The admin UI's own "search by group" is a client-side text filter,
   not a server round trip.** A `data-search` attribute per skill row
   (lowercased `name + description + group`) and one `oninput` handler
@@ -700,8 +760,10 @@ available to every user of the server — without restarting anything.
   credential did.
 - No tool versioning/rollback — installing with `overwrite=True` replaces
   the previous version in place; there's no history.
-- Single shared directory per MCP server instance; no per-user or
-  per-group tool visibility.
+- Single shared directory per MCP server instance; no per-user tool
+  visibility (every connected agent sees the same `tools/list`,
+  modulated only by group membership — see "Architecture decisions"
+  above — not by who's asking).
 - `/api/users/register` is unauthenticated by design (see "Architecture
   decisions" → end users). Anyone who can reach the main host can
   self-register an arbitrary `username` into `users.json` — no rate

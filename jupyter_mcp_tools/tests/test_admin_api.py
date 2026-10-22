@@ -529,3 +529,49 @@ def test_upload_accepts_archive_with_wrapping_folder(client, tmp_path):
 
     r = client.post("/tools/upload", files={"archive": ("wrapped.zip", archive.read_bytes(), "application/zip")})
     assert "«greet»" in r.text
+
+
+def test_groups_page_create_list_delete(client):
+    r = client.get("/groups")
+    assert r.status_code == 200
+    assert "Групп пока нет" in r.text
+
+    r = client.post("/groups", data={"name": "networking", "description": "Network stuff."})
+    assert r.status_code == 200
+    assert "networking" in r.text
+    assert "Network stuff." in r.text
+
+    r = client.get("/api/groups", auth=(ADMIN_USER, ADMIN_PASSWORD))
+    assert r.json() == [{"name": "networking", "description": "Network stuff."}]
+
+    r = client.post("/groups/networking/delete")
+    assert "удалена" in r.text
+
+    r = client.get("/api/groups", auth=(ADMIN_USER, ADMIN_PASSWORD))
+    assert r.json() == []
+
+
+def test_groups_page_duplicate_without_overwrite_shows_error(client):
+    client.post("/groups", data={"name": "networking", "description": "desc"})
+    r = client.post("/groups", data={"name": "networking", "description": "desc2"})
+    assert "already exists" in r.text
+
+
+def test_groups_blocked_in_read_only_mode(read_only_client):
+    r = read_only_client.post("/groups", data={"name": "networking", "description": "desc"})
+    assert "только просмотр" in r.text.lower()
+
+    r = read_only_client.get("/api/groups", auth=(ADMIN_USER, ADMIN_PASSWORD))
+    assert r.json() == []
+
+
+def test_api_create_group_returns_403_in_read_only_mode(read_only_client):
+    r = read_only_client.post(
+        "/api/groups", auth=(ADMIN_USER, ADMIN_PASSWORD), data={"name": "networking", "description": "desc"}
+    )
+    assert r.status_code == 403
+
+
+def test_groups_nav_link_present(client):
+    r = client.get("/")
+    assert 'href="groups"' in r.text

@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title_suffix %} — Группы{% endblock %}
+
+{% block header_actions %}
+{% if not read_only %}
+<button type="button" class="fab" title="Добавить группу" onclick="addGroupDialog.showModal()">+</button>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if read_only %}
+<div class="banner err" style="margin-bottom:1.25rem;">Только просмотр: эта админка запущена с <code>MCP_TOOLS_READ_ONLY=1</code> — создание и удаление групп отключены.</div>
+{% endif %}
+<p class="section-title">Группы</p>
+<p style="color:var(--muted);font-size:0.85rem;margin:-0.5rem 0 1rem;">Навык попадает в группу, когда его поле «Группа» (или <code>__group__</code> у code-навыков) совпадает с именем группы здесь. Навыки в такой группе не показываются агенту по отдельности — вместо них виден один инструмент группы с этим описанием; подробнее на вкладке «Документация».</p>
+<div class="card">
+  {% if groups %}
+    {% for g in groups %}
+    <div class="skill-row">
+      <span class="skill-name">{{ g.name }}</span>
+      <span class="skill-desc">{{ g.description }}</span>
+      {% if not read_only %}
+      <form method="post" action="groups/{{ g.name }}/delete" onsubmit="return confirm('Удалить группу {{ g.name }}? Навыки в ней станут показываться по отдельности.');">
+        <button type="submit" class="remove-btn">Удалить</button>
+      </form>
+      {% endif %}
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="empty-state">
+      <div class="glyph">＋</div>
+      <div>Групп пока нет.</div>
+      {% if not read_only %}
+      <button type="button" class="cta" onclick="addGroupDialog.showModal()">Добавить первую группу</button>
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block dialogs %}
+<dialog id="addGroupDialog">
+  <form method="post" action="groups" class="dialog-body">
+    <h3>Добавить группу</h3>
+    <p>Имя и описание группы — агент видит именно это описание в списке инструментов вместо описаний отдельных навыков этой группы.</p>
+    <label>
+      Имя
+      <input type="text" name="name" placeholder="networking" pattern="[a-z0-9][a-z0-9_\-]{1,63}" required />
+    </label>
+    <label>
+      Описание
+      <input type="text" name="description" placeholder="Когда и для чего использовать навыки этой группы" required />
+    </label>
+    <label class="check">
+      <input type="checkbox" name="overwrite" value="true" />
+      перезаписать, если уже существует
+    </label>
+    <div class="dialog-actions">
+      <button type="button" class="btn ghost" onclick="addGroupDialog.close()">Отмена</button>
+      <button type="submit" class="btn primary">Создать</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}

@@ -37,6 +37,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from ..common import auth, curl_client, git_push, registry, session, users
+from ..common import groups as group_store
 from ..common.config import AppConfig, load_config, save_config
 from ..common.manifest import ToolValidationError
 from ..common.registry import ToolAlreadyExistsError, ToolNotFoundError
@@ -121,13 +122,14 @@ def _relative_redirect(request: Request, target: str) -> str:
     return "../" * up + target
 
 
-def _redirect_to_root(request: Request, *, message: str | None = None, error: str | None = None) -> RedirectResponse:
-    """After a mutating POST (upload/delete/save-config), send the
-    browser back to the Skills page itself — not just render it inline
-    at the POST's own URL — passing the outcome along as a query param
-    for `index()` to show as a banner.
+def _redirect_to(request: Request, target: str, *, message: str | None = None, error: str | None = None) -> RedirectResponse:
+    """After a mutating POST, send the browser back to `target` (a plain
+    relative path with no leading `/`, e.g. "." for the Skills page or
+    "groups" for the Groups page) instead of rendering a page inline at
+    the POST's own URL — passing the outcome along as a query param for
+    that page's own GET route to show as a banner.
 
-    Per explicit request: previously these routes rendered `index.html`
+    Per explicit request: previously these routes rendered the page
     directly without redirecting at all (to avoid an *absolute* redirect
     escaping the proxy prefix — see PLAN.md). That's no longer needed:
     `_relative_redirect()` below is already proven correct under a real
@@ -135,8 +137,16 @@ def _redirect_to_root(request: Request, *, message: str | None = None, error: st
     here too and land the user back on the actual list page.
     """
     params = {k: v for k, v in {"message": message, "error": error}.items() if v}
-    target = "." if not params else f".?{urlencode(params)}"
-    return RedirectResponse(_relative_redirect(request, target), status_code=303)
+    full_target = target if not params else f"{target}?{urlencode(params)}"
+    return RedirectResponse(_relative_redirect(request, full_target), status_code=303)
+
+
+def _redirect_to_root(request: Request, *, message: str | None = None, error: str | None = None) -> RedirectResponse:
+    return _redirect_to(request, ".", message=message, error=error)
+
+
+def _redirect_to_groups(request: Request, *, message: str | None = None, error: str | None = None) -> RedirectResponse:
+    return _redirect_to(request, "groups", message=message, error=error)
 
 
 @app.exception_handler(NotAuthenticated)
@@ -206,6 +216,21 @@ def _remote_list_tools() -> tuple[list[dict], str | None]:
         return [], "Main host returned a response that wasn't valid JSON."
 
 
+def _remote_list_groups() -> tuple[list[dict], str | None]:
+    try:
+        resp = curl_client.get(f"{MAIN_HOST}/api/groups", CHILD_USER, CHILD_PASSWORD, insecure=INSECURE_TLS)
+    except curl_client.CurlError as exc:
+        return [], f"Could not reach main host: {exc}"
+    if resp.status == 401:
+        return [], "Main host rejected these credentials (401)."
+    if resp.status != 200:
+        return [], f"Main host returned HTTP {resp.status}."
+    try:
+        return json.loads(resp.text), None
+    except json.JSONDecodeError:
+        return [], "Main host returned a response that wasn't valid JSON."
+
+
 def _maybe_git_push(config: AppConfig, shared_dir: Path, commit_message: str) -> str | None:
     """Best-effort git push of `shared_dir` after a skill install/delete/edit.
 
@@ -236,6 +261,7 @@ def _render(request: Request, **extra):
         bitbucket_base_url = ""
         git_push_username = ""
         git_push_password_set = False
+        group_names = [g["name"] for g in _remote_list_groups()[0]]
     else:
         config = load_config()
         shared_dir = config.shared_dir_path
@@ -248,6 +274,7 @@ def _render(request: Request, **extra):
         # whether one is already set, so the form can show a "уже
         # установлен" placeholder instead of leaking it into the HTML.
         git_push_password_set = bool(config.git_push_password)
+        group_names = [g.name for g in group_store.list_groups(shared_dir)]
 
     return templates.TemplateResponse(
         request,
@@ -260,6 +287,7 @@ def _render(request: Request, **extra):
             "bitbucket_base_url": bitbucket_base_url,
             "git_push_username": git_push_username,
             "git_push_password_set": git_push_password_set,
+            "group_names": group_names,
             "tools": tools,
             "message": message,
             "error": error,
@@ -305,6 +333,33 @@ def _render_docs(request: Request):
             "remote": bool(MAIN_HOST),
             "active_page": "docs",
             "shared_dir": str(config.shared_dir_path),
+        },
+    )
+
+
+def _render_groups(request: Request, **extra):
+    """Renders the Groups page (templates/groups.html). Works on both the
+    main host and a child relay — unlike Users/Docs, groups are shared
+    state an admin on either side plausibly wants to manage, the same
+    way skills themselves already work through a relay."""
+    if MAIN_HOST:
+        groups, remote_error = _remote_list_groups()
+        error = extra.get("error") or remote_error
+    else:
+        config = load_config()
+        groups = [{"name": g.name, "description": g.description} for g in group_store.list_groups(config.shared_dir_path)]
+        error = extra.get("error")
+
+    return templates.TemplateResponse(
+        request,
+        "groups.html",
+        {
+            "remote": bool(MAIN_HOST),
+            "read_only": READ_ONLY,
+            "active_page": "groups",
+            "groups": groups,
+            "message": extra.get("message"),
+            "error": error,
         },
     )
 
@@ -360,6 +415,100 @@ def docs_page(request: Request, _admin: str | None = Depends(require_admin_page)
     if MAIN_HOST:
         raise HTTPException(status_code=404, detail="Not found")
     return _render_docs(request)
+
+
+@app.get("/groups", response_class=HTMLResponse)
+def groups_page(
+    request: Request,
+    message: str | None = None,
+    error: str | None = None,
+    _admin: str | None = Depends(require_admin_page),
+):
+    return _render_groups(request, message=message, error=error)
+
+
+@app.post("/groups")
+def create_group_route(
+    request: Request,
+    name: str = Form(...),
+    description: str = Form(...),
+    overwrite: bool = Form(False),
+    _admin: str | None = Depends(require_admin_page),
+):
+    if READ_ONLY:
+        return _redirect_to_groups(request, error=READ_ONLY_MESSAGE)
+
+    if MAIN_HOST:
+        try:
+            resp = curl_client.post(
+                f"{MAIN_HOST}/api/groups",
+                CHILD_USER,
+                CHILD_PASSWORD,
+                fields={"name": name, "description": description, "overwrite": "true" if overwrite else "false"},
+                insecure=INSECURE_TLS,
+            )
+        except curl_client.CurlError as exc:
+            return _redirect_to_groups(request, error=f"Не удалось подключиться к основному хосту: {exc}")
+        try:
+            payload = json.loads(resp.text)
+        except json.JSONDecodeError:
+            payload = {}
+        if resp.status != 200:
+            return _redirect_to_groups(request, error=payload.get("error", f"Основной хост вернул HTTP {resp.status}."))
+        message = f"Группа «{payload['name']}» создана."
+        if payload.get("git_push_error"):
+            message += f" Внимание: git push на основном хосте не выполнен ({payload['git_push_error']})."
+        return _redirect_to_groups(request, message=message)
+
+    config = load_config()
+    shared_dir = config.shared_dir_path
+    try:
+        group = group_store.create_group(shared_dir, name, description, overwrite=overwrite)
+    except (ToolValidationError, group_store.GroupAlreadyExistsError) as exc:
+        return _redirect_to_groups(request, error=str(exc))
+    message = f"Группа «{group.name}» создана."
+    push_error = _maybe_git_push(config, shared_dir, f"Add group '{group.name}'")
+    if push_error:
+        message += f" Внимание: git push не выполнен ({push_error})."
+    return _redirect_to_groups(request, message=message)
+
+
+@app.post("/groups/{name}/delete")
+def delete_group_route(request: Request, name: str, _admin: str | None = Depends(require_admin_page)):
+    if READ_ONLY:
+        return _redirect_to_groups(request, error=READ_ONLY_MESSAGE)
+
+    if MAIN_HOST:
+        try:
+            resp = curl_client.post(
+                f"{MAIN_HOST}/api/groups/{name}/delete", CHILD_USER, CHILD_PASSWORD, insecure=INSECURE_TLS
+            )
+        except curl_client.CurlError as exc:
+            return _redirect_to_groups(request, error=f"Не удалось подключиться к основному хосту: {exc}")
+        if resp.status == 404:
+            return _redirect_to_groups(request, error=f"Группа «{name}» не найдена (возможно, уже удалена).")
+        if resp.status != 200:
+            return _redirect_to_groups(request, error=f"Основной хост вернул HTTP {resp.status}.")
+        try:
+            payload = json.loads(resp.text)
+        except json.JSONDecodeError:
+            payload = {}
+        message = f"Группа «{name}» удалена."
+        if payload.get("git_push_error"):
+            message += f" Внимание: git push на основном хосте не выполнен ({payload['git_push_error']})."
+        return _redirect_to_groups(request, message=message)
+
+    config = load_config()
+    shared_dir = config.shared_dir_path
+    try:
+        group_store.delete_group(shared_dir, name)
+    except group_store.GroupNotFoundError:
+        return _redirect_to_groups(request, error=f"Группа «{name}» не найдена (возможно, уже удалена).")
+    message = f"Группа «{name}» удалена."
+    push_error = _maybe_git_push(config, shared_dir, f"Remove group '{name}'")
+    if push_error:
+        message += f" Внимание: git push не выполнен ({push_error})."
+    return _redirect_to_groups(request, message=message)
 
 
 @app.post("/config/shared-dir")
@@ -747,4 +896,52 @@ def api_edit_doc_skill_description(
     except ToolValidationError as exc:
         return JSONResponse(status_code=400, content={"error": str(exc)})
     push_error = _maybe_git_push(config, shared_dir, f"Edit skill '{name}' description")
+    return {"name": name, "git_push_error": push_error}
+
+
+@app.get("/api/groups")
+def api_list_groups(_admin: str | None = Depends(require_admin_api)):
+    if MAIN_HOST:
+        groups, error = _remote_list_groups()
+        if error:
+            raise HTTPException(status_code=502, detail=error)
+        return groups
+    config = load_config()
+    return [{"name": g.name, "description": g.description} for g in group_store.list_groups(config.shared_dir_path)]
+
+
+@app.post("/api/groups")
+def api_create_group(
+    name: str = Form(...),
+    description: str = Form(...),
+    overwrite: bool = Form(False),
+    _admin: str | None = Depends(require_admin_api),
+):
+    if READ_ONLY:
+        return JSONResponse(status_code=403, content={"error": READ_ONLY_MESSAGE})
+
+    config = load_config()
+    shared_dir = config.shared_dir_path
+    try:
+        group = group_store.create_group(shared_dir, name, description, overwrite=overwrite)
+    except group_store.GroupAlreadyExistsError as exc:
+        return JSONResponse(status_code=409, content={"error": str(exc)})
+    except ToolValidationError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    push_error = _maybe_git_push(config, shared_dir, f"Add group '{group.name}'")
+    return {"name": group.name, "description": group.description, "git_push_error": push_error}
+
+
+@app.post("/api/groups/{name}/delete")
+def api_delete_group(name: str, _admin: str | None = Depends(require_admin_api)):
+    if READ_ONLY:
+        return JSONResponse(status_code=403, content={"error": READ_ONLY_MESSAGE})
+
+    config = load_config()
+    shared_dir = config.shared_dir_path
+    try:
+        group_store.delete_group(shared_dir, name)
+    except group_store.GroupNotFoundError as exc:
+        return JSONResponse(status_code=404, content={"error": str(exc)})
+    push_error = _maybe_git_push(config, shared_dir, f"Remove group '{name}'")
     return {"name": name, "git_push_error": push_error}

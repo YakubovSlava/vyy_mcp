@@ -1227,3 +1227,49 @@
   every existing caller of the renamed
   `update_doc_skill_description`/the now-keyword-only `write_meta()`.
   Full suite: 145/145 passing.
+
+## 2026-10-22 (real group-based context reduction: groups as entities, dispatcher tools)
+
+- Follow-up to the above: user pointed out the `[group]` prefix didn't
+  actually shrink anything agents see ("Ведь пока что у нас нет
+  уменьшения контекста для агентов?") and asked how to even create/
+  describe a group. Two more AskUserQuestion decisions: both code and
+  doc skills get the *real* hiding treatment (accepting the loss of
+  per-skill JSON schema for grouped code skills); skills without a
+  group keep registering as standalone tools directly, unchanged.
+- New `common/groups.py`: `Group(name, description)` stored in
+  `<shared_dir>/groups.json`, with `create_group`/`delete_group`/
+  `list_groups`/`get_group` — same flat-JSON-store shape as
+  `common/users.py`. Description is required at creation time since
+  it becomes the group's own MCP tool description.
+- `mcp_server/server.py`'s `sync_tools()` rewritten: manifests whose
+  `group` matches a real `Group` are no longer registered individually
+  at all. Instead one dispatcher tool per group (`_make_group_tool`) is
+  registered, named after the group, described with the group's own
+  description. Called with no `skill` arg it lists the group's skill
+  names plus a parameter hint per skill (`_param_hint()`, via
+  `inspect.signature()` on the loaded entrypoint); called with
+  `skill=<name>, arguments={...}` it dispatches to that skill. Manifests
+  with no group, or a group string matching no real `Group`, fall back
+  unchanged to standalone registration (tested:
+  `test_sync_falls_back_to_standalone_for_unrecognized_group`).
+- Admin UI: new "Группы" tab (`templates/groups.html`) — list with
+  delete, "+" dialog to create (name + description + overwrite). Wired
+  through both HTML routes (`GET/POST /groups`, `POST
+  /groups/{name}/delete`) and JSON API routes (`GET/POST /api/groups`,
+  `POST /api/groups/{name}/delete`) for child-relay forwarding — Groups
+  behaves like Skills here (works through a relay), not like Users/Docs
+  (main-host-only). `base.html`'s nav restructured so "Навыки"/"Группы"
+  show on a relay too. Both create/delete call `_maybe_git_push` like
+  every other mutation, since `groups.json` lives in `shared_dir`.
+  `index.html`'s three free-text "Группа" inputs (upload form,
+  create-doc-skill form, edit dialog) became `<select>`s populated from
+  `group_store.list_groups()`/`_remote_list_groups()`, so an admin picks
+  a real group instead of guessing a spelling.
+- Tests: `test_groups.py` (new, 10 tests, full CRUD). Two new
+  `test_server_sync.py` cases for the dispatcher-vs-fallback split. Five
+  new `test_admin_api.py` cases (create/list/delete round trip,
+  duplicate-without-overwrite error, read-only gating for both HTML and
+  JSON routes, nav link presence). Two new `test_remote_mode.py` cases
+  (child-relay group round trip, relay Groups page has no Users/Docs
+  links). Full suite: 164/164 passing.

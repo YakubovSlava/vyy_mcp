@@ -10,6 +10,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import inspect
+import json
 import logging
 from pathlib import Path
 from typing import AsyncIterator
@@ -19,10 +21,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from ..common import groups as group_store
 from ..common import registry, users
 from ..common.config import load_config
 from ..common.doc_skill import DocSkillManifest
 from ..common.loader import load_entrypoint
+from ..common.registry import AnyManifest
 
 logger = logging.getLogger("jupyter_mcp_tools.server")
 
@@ -61,16 +65,111 @@ def _make_doc_skill_tool(shared_dir: Path, manifest: DocSkillManifest):
     return skill
 
 
+def _param_hint(shared_dir: Path, manifest: AnyManifest) -> str:
+    """A short, human/agent-readable description of what `arguments` a
+    grouped skill takes, shown in its group's listing since the skill
+    itself has no individual tool entry (and therefore no individual
+    JSON schema) for an agent to inspect — see `_make_group_tool`."""
+    if isinstance(manifest, DocSkillManifest):
+        return 'file: str = "" (optional — path to one of this skill\'s other files)'
+    try:
+        fn = load_entrypoint(shared_dir, manifest)
+        sig = inspect.signature(fn)
+    except Exception:
+        return "(unknown — failed to load)"
+
+    parts = []
+    for pname, p in sig.parameters.items():
+        ann = p.annotation if p.annotation is not inspect.Parameter.empty else "Any"
+        ann_str = getattr(ann, "__name__", str(ann))
+        if p.default is inspect.Parameter.empty:
+            parts.append(f"{pname}: {ann_str}")
+        else:
+            parts.append(f"{pname}: {ann_str} = {p.default!r}")
+    return ", ".join(parts) or "(no arguments)"
+
+
+def _make_group_tool(shared_dir: Path, group_manifests: dict[str, AnyManifest]):
+    """Dispatcher tool for one registered group (see common/groups.py).
+
+    Per explicit request, grouping is meant to actually shrink what an
+    agent reads in `tools/list`, not just tag descriptions — so the
+    skills in a group are *not* individually registered; this one tool
+    stands in for all of them. Calling it with no `skill` returns a
+    compact listing (name + description + argument hint) of what's in
+    the group; calling it with `skill="<name>"` and `arguments={...}`
+    dispatches to that skill, passing `arguments` through as its keyword
+    arguments (or, for a doc skill, reading `arguments["file"]` the same
+    way its own direct tool would read a `file` parameter).
+
+    The cost: a skill folded into a group loses the precise,
+    type-hint-derived JSON schema its own standalone tool would have had
+    (`arguments` here is just a generic object) — an explicit, accepted
+    tradeoff for actually reducing tool-list size; see PLAN.md.
+    """
+
+    def call(skill: str = "", arguments: dict | None = None) -> str:
+        """Call with no `skill` to list what's in this group. Call again
+        with `skill` set to one of those names (and `arguments` set to
+        that skill's own keyword arguments, if it takes any) to run it."""
+        if not skill:
+            lines = []
+            for name, manifest in sorted(group_manifests.items()):
+                lines.append(f"- {name}: {manifest.description}")
+                lines.append(f"    arguments: {_param_hint(shared_dir, manifest)}")
+            listing = "\n".join(lines) or "(no skills)"
+            return f"Skills in this group:\n{listing}\n\nCall again with skill=\"<name>\" (and arguments={{...}} if it takes any) to use one."
+
+        manifest = group_manifests.get(skill)
+        if manifest is None:
+            available = ", ".join(sorted(group_manifests)) or "(none)"
+            return f"Error: '{skill}' is not a skill in this group. Available: {available}"
+
+        kwargs = arguments or {}
+        if isinstance(manifest, DocSkillManifest):
+            doc_tool = _make_doc_skill_tool(shared_dir, manifest)
+            return doc_tool(file=kwargs.get("file", ""))
+
+        try:
+            fn = load_entrypoint(shared_dir, manifest)
+            result = fn(**kwargs)
+        except Exception as exc:
+            return f"Error calling '{skill}': {exc}"
+        return result if isinstance(result, str) else json.dumps(result)
+
+    return call
+
+
 def sync_tools(app: FastMCP, shared_dir: Path) -> None:
-    """Reconcile the live FastMCP tool registry with the shared directory."""
+    """Reconcile the live FastMCP tool registry with the shared directory.
+
+    A skill is registered as its own standalone tool unless its `group`
+    matches a group actually created in the admin UI (see
+    `common/groups.py`) — in which case it's folded into that group's
+    one dispatcher tool instead (see `_make_group_tool`). An unrecognized
+    group name (set on the skill but never created as a real group)
+    falls back to standalone registration, same as having no group —
+    it still gets a `[group] ` description prefix, just not hidden.
+    """
     manifests = {m.name: m for m in registry.list_tools(shared_dir)}
+    real_groups = {g.name: g for g in group_store.list_groups(shared_dir)}
+
+    grouped: dict[str, dict[str, AnyManifest]] = {}
+    standalone: dict[str, AnyManifest] = {}
+    for name, manifest in manifests.items():
+        if manifest.group and manifest.group in real_groups:
+            grouped.setdefault(manifest.group, {})[name] = manifest
+        else:
+            standalone[name] = manifest
+
+    desired_names = set(standalone) | {f"group_{g}" for g in grouped}
     existing_names = {t.name for t in app._tool_manager.list_tools()}
 
-    for name in existing_names - manifests.keys():
+    for name in existing_names - desired_names:
         app.remove_tool(name)
         logger.info("unregistered tool removed from shared dir: %s", name)
 
-    for name, manifest in manifests.items():
+    for name, manifest in standalone.items():
         if isinstance(manifest, DocSkillManifest):
             entrypoint = _make_doc_skill_tool(shared_dir, manifest)
         else:
@@ -87,6 +186,17 @@ def sync_tools(app: FastMCP, shared_dir: Path) -> None:
         description = f"[{manifest.group}] {manifest.description}" if manifest.group else manifest.description
         app.add_tool(entrypoint, name=manifest.name, description=description)
         logger.info("registered tool: %s (v%s, group=%r)", manifest.name, manifest.version, manifest.group)
+
+    for group_name, group_manifests in grouped.items():
+        tool_name = f"group_{group_name}"
+        if tool_name in existing_names:
+            app.remove_tool(tool_name)
+        app.add_tool(
+            _make_group_tool(shared_dir, group_manifests),
+            name=tool_name,
+            description=real_groups[group_name].description,
+        )
+        logger.info("registered group tool: %s (%d skills)", tool_name, len(group_manifests))
 
 
 class LogMCPUserMiddleware(BaseHTTPMiddleware):

@@ -408,18 +408,31 @@ the `.py` file directly.
 
 ### Groups and search
 
-Any skill (code or doc) can be tagged with a `group` — free-form text,
-optional. It does two things:
+Any skill (code or doc) can be tagged with a `group` — for a code skill
+via an optional module-level `__group__ = "..."` string, for a doc skill
+via a form field. This always does one thing: the Skills tab gets a
+search box that matches against name, description, and group together,
+which matters once there are more than a handful of skills.
 
-- The Skills tab gets a search box that matches against name,
-  description, and group together, which matters once there are more
-  than a handful of skills.
-- The group is also visible to a connecting agent: `mcp_server/server.py`'s
-  `sync_tools()` prefixes the registered tool's own MCP description with
-  `[group]` when one is set. The idea is that an agent can judge
-  relevance from the group tag in `tools/list` without having to spend
-  context reading every tool's full description, including ones from
-  categories it clearly doesn't need for the current task.
+**Groups also need to be created on the "Группы" tab** (name +
+description) to get their full effect. A skill whose `group` matches a
+group that was actually created there is no longer listed as its own
+tool at all — instead the whole group collapses behind one MCP tool,
+named after the group, whose description *is* the group's own
+description. A connecting agent calls that one tool with no arguments to
+get back the list of skill names in the group (plus a short parameter
+hint per skill), and calls it again with `skill=<name>,
+arguments={...}` to actually run one. This is where the real context
+reduction happens — the agent's `tools/list` carries one entry for the
+whole group instead of one per skill in it. The tradeoff: a code skill
+in a group loses its own precise, type-hinted JSON parameter schema in
+favor of the group dispatcher's generic `arguments` object.
+
+A skill whose `group` string doesn't match any group created on the
+"Группы" tab (including the common case of leaving it unset) just
+registers as its own standalone tool, exactly as if groups didn't exist
+— nothing breaks, it simply doesn't get the hiding treatment until a
+matching group is created.
 
 A doc skill doesn't need an archive at all: "✎ Написать навык" next to
 "+" on the Skills tab opens a form with **Имя**/**Описание**/a

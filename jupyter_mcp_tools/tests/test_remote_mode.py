@@ -171,3 +171,22 @@ def test_child_relay_create_doc_skill_round_trip(child_client):
 
     r = child_client.get("/")
     assert "my-skill" in r.text
+
+
+def test_child_relay_group_create_list_delete_round_trip(child_client):
+    r = child_client.post("/groups", data={"name": "networking", "description": "Network stuff."})
+    assert r.status_code == 200
+    assert "создана" in r.text
+
+    r = child_client.get("/groups")
+    assert "networking" in r.text
+    assert "Network stuff." in r.text
+
+    r = child_client.post("/groups/networking/delete")
+    assert "удалена" in r.text
+
+
+def test_child_relay_groups_page_has_no_users_docs_links(child_client):
+    r = child_client.get("/groups")
+    assert r.status_code == 200
+    assert 'href="users"' not in r.text

@@ -316,13 +316,14 @@
       <div class="logo">
         <span class="mj">MJ</span><span class="rest">App</span><span class="edition">(Lab edition){% if remote %} · remote{% endif %}</span>
       </div>
-      {% if not remote %}
       <nav class="tabs">
         <a href="." class="{{ 'active' if active_page == 'skills' else '' }}">Навыки</a>
+        <a href="groups" class="{{ 'active' if active_page == 'groups' else '' }}">Группы</a>
+        {% if not remote %}
         <a href="users" class="{{ 'active' if active_page == 'users' else '' }}">Пользователи</a>
         <a href="docs" class="{{ 'active' if active_page == 'docs' else '' }}">Документация</a>
+        {% endif %}
       </nav>
-      {% endif %}
     </div>
     <div class="header-actions">
       {% block header_actions %}{% endblock %}
