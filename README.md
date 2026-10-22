@@ -312,6 +312,15 @@ PLAN.md for the explicit trade-off.
 A tool archive is a `.zip` holding one of two kinds of skill, detected by
 which file sits at its root — a shared directory can hold a mix of both.
 
+The archive can be either a zip *of the skill's files* (the common result
+of `zip file1 file2 ...`, with `tool.py`/`SKILL.md` directly at the
+root) or a zip *of a folder containing them* (the result of `zip -r
+x.zip myskill/`, or a file manager's "Compress" action on a folder,
+which nests everything one level deep as `myskill/tool.py`). Both work —
+if every member of the archive shares one common top-level folder, it's
+stripped automatically before validation, so there's no need to flatten
+the folder yourself before zipping it.
+
 ### Code skills
 
 No `manifest.json` — a code skill is a single `.py` file (any filename)
@@ -392,6 +401,15 @@ re-uploading the archive; the `SKILL.md` body and every other file in
 the bundle are left untouched, only `.skill_meta.json` changes. There's
 no equivalent for code skills: their description is the function's own
 docstring, edited by editing the `.py` file directly.
+
+A doc skill doesn't need an archive at all: "✎ Написать навык" next to
+"+" on the Skills tab opens a form with **Имя**/**Описание**/a
+**Markdown textarea** for the body, and creates the skill directly on
+the server from that text — no zip to build and upload for the common
+case of a skill with no supporting files. `registry.create_doc_skill()`
+is the same validation/write path `install_tool()` uses, just skipping
+the archive step; it doesn't support attaching extra files (`references/`
+etc.) — upload a `.zip` for that.
 
 ### Returning multiple files for a human to run themselves
 

@@ -159,3 +159,15 @@ def test_child_relay_has_no_docs_page(child_client):
     r = child_client.get("/docs")
     assert r.status_code == 404
     assert 'href="users"' not in child_client.get("/").text
+
+
+def test_child_relay_create_doc_skill_round_trip(child_client):
+    r = child_client.post(
+        "/tools/create-doc-skill",
+        data={"name": "my-skill", "description": "Use this when...", "body": "# My Skill\n\nDo the thing."},
+    )
+    assert r.status_code == 200
+    assert "создан и установлен" in r.text
+
+    r = child_client.get("/")
+    assert "my-skill" in r.text

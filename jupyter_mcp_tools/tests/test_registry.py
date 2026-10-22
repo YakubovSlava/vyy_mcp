@@ -158,3 +158,83 @@ def test_update_doc_skill_description_rejects_code_skill(make_archive, shared_di
     registry.install_tool(archive, shared_dir)
     with pytest.raises(ToolValidationError, match="not a doc skill"):
         registry.update_doc_skill_description(shared_dir, "greet", "desc")
+
+
+def test_create_doc_skill_from_text(shared_dir):
+    manifest = registry.create_doc_skill(
+        shared_dir, name="my-skill", description="Use this skill when...", body="# My Skill\n\nDo the thing.\n"
+    )
+    assert manifest.name == "my-skill"
+    assert manifest.description == "Use this skill when..."
+    assert manifest.body == "# My Skill\n\nDo the thing."
+
+    tools = registry.list_tools(shared_dir)
+    assert [t.name for t in tools] == ["my-skill"]
+    assert tools[0].description == "Use this skill when..."
+
+
+def test_create_doc_skill_duplicate_without_overwrite_raises(shared_dir):
+    registry.create_doc_skill(shared_dir, name="my-skill", description="desc", body="body text")
+    with pytest.raises(ToolAlreadyExistsError):
+        registry.create_doc_skill(shared_dir, name="my-skill", description="desc2", body="body text 2")
+
+
+def test_create_doc_skill_duplicate_with_overwrite_replaces(shared_dir):
+    registry.create_doc_skill(shared_dir, name="my-skill", description="desc", body="body text")
+    manifest = registry.create_doc_skill(
+        shared_dir, name="my-skill", description="new desc", body="new body", overwrite=True
+    )
+    assert manifest.description == "new desc"
+    assert manifest.body == "new body"
+
+
+def test_create_doc_skill_invalid_name_raises(shared_dir):
+    with pytest.raises(ToolValidationError, match="must match"):
+        registry.create_doc_skill(shared_dir, name="Not Valid", description="desc", body="body")
+
+
+def test_create_doc_skill_empty_body_raises(shared_dir):
+    with pytest.raises(ToolValidationError, match="no content"):
+        registry.create_doc_skill(shared_dir, name="my-skill", description="desc", body="   ")
+
+
+def test_install_doc_skill_archive_with_wrapping_folder(tmp_path, shared_dir):
+    # A zip of a *folder* (e.g. right-click "Compress" in a file manager,
+    # or `zip -r x.zip myskill/`) nests everything one level deep --
+    # "myskill/SKILL.md" instead of "SKILL.md" at the root. Must still
+    # install correctly, stripping that wrapping folder automatically.
+    archive = tmp_path / "wrapped.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("myskill/SKILL.md", "# Wrapped skill\n\nBody.\n")
+        zf.writestr("myskill/references/notes.md", "notes")
+
+    manifest = registry.install_tool(archive, shared_dir, name="repo-explainer", description="desc")
+    assert manifest.files == ("references/notes.md",)
+
+    tools = registry.list_tools(shared_dir)
+    assert [t.name for t in tools] == ["repo-explainer"]
+    assert tools[0].files == ("references/notes.md",)
+
+
+def test_install_code_skill_archive_with_wrapping_folder(tmp_path, shared_dir):
+    archive = tmp_path / "wrapped.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("mytool/tool.py", VALID_MODULE)
+
+    manifest = registry.install_tool(archive, shared_dir)
+    assert manifest.name == "greet"
+
+    tools = registry.list_tools(shared_dir)
+    assert [t.name for t in tools] == ["greet"]
+
+
+def test_install_archive_without_wrapping_folder_still_works(tmp_path, shared_dir):
+    # A root-level file alongside a nested one must NOT be treated as a
+    # wrapping folder (ambiguous) -- the existing "flat" shape must keep
+    # working exactly as before.
+    archive = tmp_path / "flat.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("tool.py", VALID_MODULE)
+
+    manifest = registry.install_tool(archive, shared_dir)
+    assert manifest.name == "greet"

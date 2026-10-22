@@ -18,6 +18,7 @@ directory can hold a mix of both.
 """
 from __future__ import annotations
 
+import contextlib
 import shutil
 import tempfile
 import zipfile
@@ -26,6 +27,8 @@ from pathlib import Path
 
 from .doc_skill import (
     DocSkillManifest,
+    check_name_and_description,
+    create_doc_skill_dir,
     find_skill_md_name,
     validate_doc_skill_archive,
     validate_doc_skill_dir,
@@ -46,6 +49,64 @@ class ToolNotFoundError(ValueError):
 
 def tools_dir(shared_dir: Path) -> Path:
     return shared_dir / "tools"
+
+
+def _common_root_dir(names: list[str]) -> str:
+    """If every file in the archive lives under one shared top-level
+    folder — the normal result of zipping a *folder* rather than its
+    contents (e.g. ``myskill/SKILL.md`` instead of ``SKILL.md`` at the
+    root) — return that folder's prefix (``"myskill/"``). Otherwise
+    return ``""`` (nothing to strip): if any file already sits at the
+    true root, the archive is already in the expected shape and we
+    don't guess.
+    """
+    files = [n for n in names if n and not n.endswith("/")]
+    if not files:
+        return ""
+    segments = [n.split("/", 1) for n in files]
+    if any(len(s) == 1 for s in segments):
+        return ""
+    top_levels = {s[0] for s in segments}
+    if len(top_levels) == 1:
+        return next(iter(top_levels)) + "/"
+    return ""
+
+
+@contextlib.contextmanager
+def _normalized_archive(archive_path: Path):
+    """Yields `archive_path` itself, or — if it's a zip of a single
+    wrapping folder (see `_common_root_dir`) — a temporary copy with that
+    folder stripped from every member name, so the rest of this module
+    can keep assuming skill content sits at the archive's true root.
+    Per explicit request: uploading a zip made by right-click-"Compress"
+    on a folder (which nests everything one level deep) was inconvenient
+    without this.
+    """
+    if not zipfile.is_zipfile(archive_path):
+        yield archive_path
+        return
+
+    with zipfile.ZipFile(archive_path) as zf:
+        names = zf.namelist()
+        prefix = _common_root_dir(names)
+        if not prefix:
+            yield archive_path
+            return
+
+        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        try:
+            with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as out:
+                for info in zf.infolist():
+                    if not info.filename.startswith(prefix):
+                        continue
+                    new_name = info.filename[len(prefix) :]
+                    if not new_name:
+                        continue
+                    out.writestr(new_name, zf.read(info.filename))
+            yield tmp_path
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
 
 def _validate_archive(archive_path: Path, *, name: str | None, description: str | None) -> AnyManifest:
@@ -89,28 +150,46 @@ def install_tool(
     the archive is malformed, or ToolAlreadyExistsError if a skill with the
     same name already exists and overwrite=False.
     """
-    manifest = _validate_archive(archive_path, name=name, description=description)
+    with _normalized_archive(archive_path) as normalized:
+        manifest = _validate_archive(normalized, name=name, description=description)
 
-    dest = tools_dir(shared_dir) / manifest.name
-    if dest.exists() and not overwrite:
-        raise ToolAlreadyExistsError(
-            f"tool '{manifest.name}' is already installed; set overwrite=True to replace it"
-        )
+        dest = tools_dir(shared_dir) / manifest.name
+        if dest.exists() and not overwrite:
+            raise ToolAlreadyExistsError(
+                f"tool '{manifest.name}' is already installed; set overwrite=True to replace it"
+            )
 
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_path = Path(tmp)
-        with zipfile.ZipFile(archive_path) as zf:
-            zf.extractall(tmp_path)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            with zipfile.ZipFile(normalized) as zf:
+                zf.extractall(tmp_path)
 
-        if isinstance(manifest, DocSkillManifest):
-            write_meta(tmp_path, manifest.description)
+            if isinstance(manifest, DocSkillManifest):
+                write_meta(tmp_path, manifest.description)
 
-        tools_dir(shared_dir).mkdir(parents=True, exist_ok=True)
-        if dest.exists():
-            shutil.rmtree(dest)
-        shutil.move(str(tmp_path), str(dest))
+            tools_dir(shared_dir).mkdir(parents=True, exist_ok=True)
+            if dest.exists():
+                shutil.rmtree(dest)
+            shutil.move(str(tmp_path), str(dest))
 
     return manifest
+
+
+def create_doc_skill(
+    shared_dir: Path, *, name: str, description: str, body: str, overwrite: bool = False
+) -> DocSkillManifest:
+    """Create a brand-new doc skill directly from admin-typed text in the
+    admin UI — no archive upload involved at all."""
+    check_name_and_description(name, description)
+
+    dest = tools_dir(shared_dir) / name
+    if dest.exists() and not overwrite:
+        raise ToolAlreadyExistsError(f"tool '{name}' is already installed; set overwrite=True to replace it")
+
+    tools_dir(shared_dir).mkdir(parents=True, exist_ok=True)
+    if dest.exists():
+        shutil.rmtree(dest)
+    return create_doc_skill_dir(dest, description=description, body=body)
 
 
 def _load_installed(entry: Path) -> AnyManifest | None:

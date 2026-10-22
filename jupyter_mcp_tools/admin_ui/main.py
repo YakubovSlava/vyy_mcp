@@ -464,6 +464,64 @@ async def upload_tool(
         tmp_path.unlink(missing_ok=True)
 
 
+@app.post("/tools/create-doc-skill")
+def create_doc_skill_route(
+    request: Request,
+    name: str = Form(...),
+    description: str = Form(...),
+    body: str = Form(...),
+    overwrite: bool = Form(False),
+    _admin: str | None = Depends(require_admin_page),
+):
+    """Creates a doc skill (SKILL.md bundle) straight from text typed into
+    the admin UI — no archive upload at all. Per explicit request: an
+    admin should be able to write the skill's Markdown directly instead
+    of always having to build and upload a `.zip`."""
+    if READ_ONLY:
+        return _redirect_to_root(request, error=READ_ONLY_MESSAGE)
+
+    if MAIN_HOST:
+        try:
+            resp = curl_client.post(
+                f"{MAIN_HOST}/api/tools/create-doc-skill",
+                CHILD_USER,
+                CHILD_PASSWORD,
+                fields={
+                    "name": name,
+                    "description": description,
+                    "body": body,
+                    "overwrite": "true" if overwrite else "false",
+                },
+                insecure=INSECURE_TLS,
+            )
+        except curl_client.CurlError as exc:
+            return _redirect_to_root(request, error=f"Не удалось подключиться к основному хосту: {exc}")
+        try:
+            payload = json.loads(resp.text)
+        except json.JSONDecodeError:
+            payload = {}
+        if resp.status != 200:
+            return _redirect_to_root(request, error=payload.get("error", f"Основной хост вернул HTTP {resp.status}."))
+        message = f"«{payload['name']}» создан и установлен для всех пользователей."
+        if payload.get("git_push_error"):
+            message += f" Внимание: git push на основном хосте не выполнен ({payload['git_push_error']})."
+        return _redirect_to_root(request, message=message)
+
+    config = load_config()
+    shared_dir = config.shared_dir_path
+    try:
+        manifest = registry.create_doc_skill(
+            shared_dir, name=name, description=description, body=body, overwrite=overwrite
+        )
+    except (ToolValidationError, ToolAlreadyExistsError) as exc:
+        return _redirect_to_root(request, error=str(exc))
+    message = f"«{manifest.name}» создан и установлен для всех пользователей."
+    push_error = _maybe_git_push(config, shared_dir, f"Add skill '{manifest.name}'")
+    if push_error:
+        message += f" Внимание: git push не выполнен ({push_error})."
+    return _redirect_to_root(request, message=message)
+
+
 @app.post("/tools/{name}/delete")
 def delete_tool(request: Request, name: str, _admin: str | None = Depends(require_admin_page)):
     if READ_ONLY:
@@ -602,6 +660,32 @@ async def api_upload_tool(
         return JSONResponse(status_code=409, content={"error": str(exc)})
     finally:
         tmp_path.unlink(missing_ok=True)
+
+    push_error = _maybe_git_push(config, shared_dir, f"Add skill '{manifest.name}'")
+    return {"name": manifest.name, "version": manifest.version, "git_push_error": push_error}
+
+
+@app.post("/api/tools/create-doc-skill")
+def api_create_doc_skill(
+    name: str = Form(...),
+    description: str = Form(...),
+    body: str = Form(...),
+    overwrite: bool = Form(False),
+    _admin: str | None = Depends(require_admin_api),
+):
+    if READ_ONLY:
+        return JSONResponse(status_code=403, content={"error": READ_ONLY_MESSAGE})
+
+    config = load_config()
+    shared_dir = config.shared_dir_path
+    try:
+        manifest = registry.create_doc_skill(
+            shared_dir, name=name, description=description, body=body, overwrite=overwrite
+        )
+    except ToolValidationError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    except ToolAlreadyExistsError as exc:
+        return JSONResponse(status_code=409, content={"error": str(exc)})
 
     push_error = _maybe_git_push(config, shared_dir, f"Add skill '{manifest.name}'")
     return {"name": manifest.name, "version": manifest.version, "git_push_error": push_error}

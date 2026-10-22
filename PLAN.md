@@ -587,6 +587,45 @@ available to every user of the server — without restarting anything.
   ("+", "Удалить", "Редактировать") are also hidden from the rendered
   page in this mode, not just rejected server-side, so the UI doesn't
   invite an action it's going to refuse anyway.
+- **A zip-of-a-folder archive (one common top-level directory wrapping
+  everything, e.g. `myskill/SKILL.md`) is now normalized automatically**,
+  per explicit request ("сейчас не совсем удобно" — uploading an archive
+  made by zipping a folder, instead of its contents, used to fail
+  validation outright). `registry._common_root_dir()` only strips a
+  prefix when *every* file in the archive shares it — if any file
+  already sits at the true root, nothing is stripped, so the existing
+  flat shape (what every test/example already uploads) is unaffected.
+  `registry._normalized_archive()` is a context manager that yields
+  either the original path (no wrapping folder found) or a temporary
+  rewritten zip with that folder's prefix removed from every member
+  name; `install_tool()` now does *all* of its work — detection,
+  validation, and the final `extractall()` — inside that one context, so
+  there's exactly one normalization pass, not one for validation and a
+  separately-forgotten one for extraction. This lives in `registry.py`
+  (not `manifest.py`/`doc_skill.py`) since it's a property of the
+  *archive as a whole*, before either kind-specific validator even sees
+  it — both `root_python_files()` and `find_skill_md_name()` keep their
+  existing root-only detection logic unchanged; they just now always see
+  an already-normalized name list.
+- **A doc skill can be created directly from text typed into the admin
+  UI, no archive at all** — per explicit request ("добавлять тул и
+  писать текст MD для него"). `registry.create_doc_skill()` reuses
+  `doc_skill.check_name_and_description()` (promoted from a private
+  `_check_name_and_description()` so both the archive path and this one
+  can call it) and a new `doc_skill.create_doc_skill_dir()` that writes
+  `SKILL.md` + the `.skill_meta.json` sidecar straight to the
+  destination folder — the same two files `install_tool()` would have
+  produced by extracting a one-file archive, just without ever
+  materializing a zip. Deliberately doesn't support attaching extra
+  files (`references/*`, images, ...): that's what the existing archive
+  upload is for, and giving the inline form its own ad-hoc multi-file
+  input would duplicate that path for no real benefit. Wired through
+  `POST /tools/create-doc-skill` (HTML) + `POST
+  /api/tools/create-doc-skill` (JSON, what a child relay's `curl` call
+  hits) — both follow the exact same shape (read-only check, git push,
+  overwrite flag) as the existing `/tools/upload` pair, since from the
+  main host's perspective this is just another way to end up with a new
+  `DocSkillManifest` on disk.
 
 ## Shared tools directory layout
 

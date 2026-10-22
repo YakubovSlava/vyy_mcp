@@ -31,6 +31,7 @@
   <span>⚙</span><span class="path">{{ shared_dir }}</span>
 </button>
 {% if not read_only %}
+<button type="button" class="icon-btn" title="Написать навык в виде текста" onclick="createDocSkillDialog.showModal()">✎ Написать навык</button>
 <button type="button" class="fab" title="Добавить навык" onclick="addSkillDialog.showModal()">+</button>
 {% endif %}
 {% endblock %}
@@ -138,6 +139,33 @@
     <div class="dialog-actions">
       <button type="button" class="btn ghost" onclick="addSkillDialog.close()">Отмена</button>
       <button type="submit" class="btn primary">Установить и поделиться со всеми</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="createDocSkillDialog" class="wide">
+  <form method="post" action="tools/create-doc-skill" class="dialog-body">
+    <h3>Написать навык</h3>
+    <p>Создаёт навык в формате <code>SKILL.md</code> прямо из текста ниже — без сборки и загрузки архива.</p>
+    <label>
+      Имя
+      <input type="text" name="name" placeholder="my-skill" pattern="[a-z0-9][a-z0-9_\-]{1,63}" required />
+    </label>
+    <label>
+      Описание
+      <input type="text" name="description" placeholder="Когда и для чего использовать этот навык" required />
+    </label>
+    <label>
+      Текст навыка (Markdown)
+      <textarea name="body" rows="12" placeholder="# Название навыка&#10;&#10;Инструкции для агента..." required></textarea>
+    </label>
+    <label class="check">
+      <input type="checkbox" name="overwrite" value="true" />
+      перезаписать, если уже существует
+    </label>
+    <div class="dialog-actions">
+      <button type="button" class="btn ghost" onclick="createDocSkillDialog.close()">Отмена</button>
+      <button type="submit" class="btn primary">Создать и поделиться со всеми</button>
     </div>
   </form>
 </dialog>

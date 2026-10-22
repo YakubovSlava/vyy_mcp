@@ -63,7 +63,7 @@ def find_skill_md_name(names: list[str]) -> str | None:
     return None
 
 
-def _check_name_and_description(name: str, description: str) -> None:
+def check_name_and_description(name: str, description: str) -> None:
     if not name:
         raise ToolValidationError("doc skill needs a name — enter it in the upload form")
     if not NAME_RE.match(name):
@@ -79,7 +79,7 @@ def validate_doc_skill_archive(archive_path: Path, *, name: str, description: st
     file itself — SKILL.md is plain markdown with no required syntax.
     Raises ToolValidationError on any structural problem.
     """
-    _check_name_and_description(name, description)
+    check_name_and_description(name, description)
 
     if not zipfile.is_zipfile(archive_path):
         raise ToolValidationError("file is not a valid zip archive")
@@ -141,3 +141,20 @@ def write_meta(skill_dir: Path, description: str) -> None:
     """Persist the admin-supplied description alongside an installed doc
     skill, so `validate_doc_skill_dir` can recover it on every re-scan."""
     (skill_dir / _META_FILENAME).write_text(json.dumps({"description": description}), encoding="utf-8")
+
+
+def create_doc_skill_dir(skill_dir: Path, *, description: str, body: str) -> DocSkillManifest:
+    """Write a brand-new doc skill straight to disk from admin-typed
+    name/description/body — no archive involved at all. `name` is
+    `skill_dir.name` (the caller picks the destination folder); the
+    caller is also responsible for validating it and checking
+    `check_name_and_description` before calling this, same as
+    `validate_doc_skill_archive` does for an upload."""
+    body = body.strip()
+    if not body:
+        raise ToolValidationError("SKILL.md has no content")
+
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(body, encoding="utf-8")
+    write_meta(skill_dir, description)
+    return DocSkillManifest(name=skill_dir.name, description=description, body=body, files=())

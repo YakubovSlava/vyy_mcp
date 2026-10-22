@@ -472,3 +472,57 @@ def test_read_only_json_api_returns_403(read_only_client, tmp_path):
 
     r = read_only_client.post("/api/tools/does-not-exist/delete", auth=(ADMIN_USER, ADMIN_PASSWORD))
     assert r.status_code == 403
+
+
+def test_create_doc_skill_from_text(client):
+    r = client.post(
+        "/tools/create-doc-skill",
+        data={"name": "my-skill", "description": "Use this when...", "body": "# My Skill\n\nDo the thing."},
+    )
+    assert "создан и установлен" in r.text
+    assert "my-skill" in r.text
+
+    r = client.get("/api/tools", auth=(ADMIN_USER, ADMIN_PASSWORD))
+    names = [t["name"] for t in r.json()]
+    assert names == ["my-skill"]
+
+
+def test_create_doc_skill_duplicate_without_overwrite_shows_error(client):
+    client.post(
+        "/tools/create-doc-skill", data={"name": "my-skill", "description": "desc", "body": "body text"}
+    )
+    r = client.post(
+        "/tools/create-doc-skill", data={"name": "my-skill", "description": "desc2", "body": "body text 2"}
+    )
+    assert "already installed" in r.text
+
+
+def test_create_doc_skill_blocked_in_read_only_mode(read_only_client):
+    r = read_only_client.post(
+        "/tools/create-doc-skill",
+        data={"name": "my-skill", "description": "desc", "body": "body text"},
+    )
+    assert "только просмотр" in r.text.lower()
+
+    r = read_only_client.get("/api/tools", auth=(ADMIN_USER, ADMIN_PASSWORD))
+    assert r.json() == []
+
+
+def test_api_create_doc_skill_returns_403_in_read_only_mode(read_only_client):
+    r = read_only_client.post(
+        "/api/tools/create-doc-skill",
+        auth=(ADMIN_USER, ADMIN_PASSWORD),
+        data={"name": "my-skill", "description": "desc", "body": "body text"},
+    )
+    assert r.status_code == 403
+
+
+def test_upload_accepts_archive_with_wrapping_folder(client, tmp_path):
+    # A zip of a folder (e.g. file-manager "Compress") nests content one
+    # level deep -- "mytool/tool.py" instead of "tool.py" at the root.
+    archive = tmp_path / "wrapped.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("mytool/tool.py", VALID_MODULE)
+
+    r = client.post("/tools/upload", files={"archive": ("wrapped.zip", archive.read_bytes(), "application/zip")})
+    assert "«greet»" in r.text

@@ -1137,3 +1137,46 @@
   reproducing the exact failure mode (a description with both `'` and
   `"`) and asserting the button's markup stays well-formed. Full suite:
   123/123 passing.
+
+## 2026-10-22 (write a doc skill directly in the admin UI; archives can be a zipped folder)
+
+- Per explicit request ("сделай возможность прямо в админке добавлять
+  тул и писать текст MD для него"), added a way to create a doc skill
+  straight from text typed into the admin UI — no archive at all.
+  `common/doc_skill.py`: promoted `_check_name_and_description()` to
+  public `check_name_and_description()`, added `create_doc_skill_dir()`
+  (writes `SKILL.md` + the `.skill_meta.json` sidecar directly to the
+  destination folder). `common/registry.py`: new `create_doc_skill()`
+  calling that, with the same existence/overwrite check every other
+  install path uses. Wired through `POST /tools/create-doc-skill` (HTML)
+  and `POST /api/tools/create-doc-skill` (JSON, what a child relay's
+  `curl` call hits), both gated by `READ_ONLY` and triggering the same
+  git push as `/tools/upload` on success. `templates/index.html` gained
+  a "✎ Написать навык" button next to "+", opening a wide dialog
+  (`dialog.wide`, new CSS in `base.html`) with Имя/Описание/a Markdown
+  textarea. Deliberately doesn't support attaching extra files
+  (`references/*`) — that's what the archive upload remains for.
+- Per a second explicit request in the same message ("формат архива
+  поправь, чтобы внутри архива могла быть папка с содержимым"), archive
+  uploads now tolerate being a zip *of a folder* (e.g.
+  `myskill/SKILL.md` instead of `SKILL.md` at the root — the normal
+  result of `zip -r x.zip myskill/` or a file manager's "Compress"
+  action), not just a zip of the skill's files directly. New
+  `registry._common_root_dir()` detects a single shared top-level
+  folder wrapping *every* file in the archive (if any file already sits
+  at the true root, nothing is stripped — the existing flat shape stays
+  untouched) and `registry._normalized_archive()` (a context manager)
+  yields a temporary copy with that folder's prefix removed from every
+  member name. `install_tool()` now does detection, validation, *and*
+  the final `extractall()` inside that one normalized context, so
+  there's exactly one normalization pass applied consistently — no
+  separate, easy-to-forget strip at extraction time.
+- Tests: `test_registry.py` gained `create_doc_skill` tests (happy path,
+  duplicate without/with overwrite, invalid name, empty body) and
+  wrapping-folder tests for both bundle kinds plus a regression test
+  that an already-flat archive (a root-level file) is left alone.
+  `test_admin_api.py` gained the HTML route's happy path, duplicate
+  error, read-only-mode block (both HTML and JSON API), and an
+  upload-with-wrapping-folder case. `test_remote_mode.py` gained a
+  child-relay round trip for the new create route. Full suite: 137/137
+  passing.
