@@ -1451,3 +1451,26 @@
   `test_child_relay_cannot_change_shared_dir`). Full suite: 180/180
   passing. Verified the route is wired on the real running admin UI
   (unauthenticated POST correctly 303s to `/login` rather than 404ing).
+
+## 2026-10-27 (fix: POST through the fake user/proxy prefix had no handler)
+
+- User reported the new "Сбросить к стандартному" button erroring on a
+  real deployment (a plain, non-Hub JupyterLab running
+  `jupyter_mcp_tools.jupyter_ext`, which fakes the
+  `/user/<username>/proxy/<port>/...` URL shape and redirects it to the
+  real `/proxy/<port>/...`). Root cause, found by reading
+  `_FakeUserPrefixRedirectHandler`: it only implemented `get()`. Tornado
+  defaults every other verb to `_unimplemented_method` → 405, so a POST
+  landing on the fake prefix (this new button was apparently the first
+  one to actually hit it that way) had no code path to handle it at
+  all.
+- Fixed by adding `post`/`put`/`delete`/`patch` handlers that redirect
+  with **307** (preserves both method and body — a plain 302/303 would
+  have made the browser resubmit the redirected POST as a GET, silently
+  losing the form data even if it hadn't errored outright). `get` keeps
+  its original 302 since a page load has no body to preserve.
+- Added `test_jupyter_ext.py` — this project's first test of
+  `jupyter_ext.py` — via `tornado.testing.AsyncHTTPTestCase`: one GET,
+  one POST, and PUT/DELETE/PATCH in a loop, each asserting the right
+  status code and rewritten `Location` header. Full suite: 184/184
+  passing.

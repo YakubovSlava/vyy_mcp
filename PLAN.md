@@ -897,6 +897,26 @@ available to every user of the server — without restarting anything.
     button submits the whole enclosing form, so `path`'s `required`
     attribute still applies — harmless in practice since the dialog
     always opens with `path` already pre-filled.
+  - **Bug found via this button, fixed in `jupyter_ext.py` (unrelated to
+    the button's own code):** on a plain (non-Hub) JupyterLab running
+    the `jupyter_mcp_tools.jupyter_ext` server extension (fakes the
+    `/user/<username>/proxy/<port>/...` URL shape — see that module's
+    own docstring for why), `_FakeUserPrefixRedirectHandler` only ever
+    implemented `get()`. Tornado's `RequestHandler` defaults every other
+    HTTP verb to `_unimplemented_method` (a 405) — so a POST that reaches
+    this fake prefix instead of the real `/proxy/<port>/...` (the "⚙"
+    dialog's new reset button was the first one someone actually hit
+    this way) had no handler at all. Even fixing just the 405 wouldn't
+    have been enough: a plain redirect here would have used 302/303,
+    which browsers resubmit as GET on a redirected POST, silently
+    dropping the form body — so `post`/`put`/`delete`/`patch` were all
+    added, redirecting with **307** specifically (preserves both method
+    and body, unlike 301/302/303). `get` keeps its original 302 — a
+    redirected page *load* has no body to lose. New
+    `test_jupyter_ext.py` (via `tornado.testing.AsyncHTTPTestCase`, this
+    project's first test of `jupyter_ext.py`): one GET, one POST, and a
+    loop over PUT/DELETE/PATCH, all asserting the right status (307, or
+    302 for GET) and the correctly rewritten `Location`.
 
 ## Shared tools directory layout
 

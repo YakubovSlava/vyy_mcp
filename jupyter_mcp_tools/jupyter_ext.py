@@ -27,11 +27,40 @@ from tornado.web import RequestHandler
 
 
 class _FakeUserPrefixRedirectHandler(RequestHandler):
+    """Only `get()` existed here originally — fine for loading the admin
+    UI's pages, but a POST (any form submit: upload, delete, the "⚙"
+    dialog's save/reset buttons, ...) reaching this fake prefix instead
+    of the real `/proxy/<port>/...` had no handler at all, since Tornado's
+    `RequestHandler` defaults every other verb to `_unimplemented_method`
+    (a 405). A 302/303 redirect would also silently drop the POST body
+    (browsers resubmit those as GET) even if it didn't error — so every
+    verb below redirects with 307, which preserves both the method and
+    the body.
+    """
+
+    def _redirect(self, rest: str) -> None:
+        target = f"/proxy/{rest}"
+        if self.request.query:
+            target += f"?{self.request.query}"
+        self.redirect(target, status=307)
+
     def get(self, _username: str, rest: str) -> None:
         target = f"/proxy/{rest}"
         if self.request.query:
             target += f"?{self.request.query}"
         self.redirect(target, permanent=False)
+
+    def post(self, _username: str, rest: str) -> None:
+        self._redirect(rest)
+
+    def put(self, _username: str, rest: str) -> None:
+        self._redirect(rest)
+
+    def delete(self, _username: str, rest: str) -> None:
+        self._redirect(rest)
+
+    def patch(self, _username: str, rest: str) -> None:
+        self._redirect(rest)
 
 
 def _jupyter_server_extension_points():
