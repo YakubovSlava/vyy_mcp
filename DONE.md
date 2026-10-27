@@ -1314,3 +1314,33 @@
   (new) checks the edit button renders with the right `data-*` and that
   posting with `overwrite=true` actually updates the stored description.
   Full suite: 164/164 passing.
+
+## 2026-10-27 (meta-skill: a skill that creates other skills)
+
+- Per explicit request ("навык, который позволит делать навыки по
+  формату для нас") — added `examples/create_skill/tool.py`, a code
+  skill whose single function `create_skill(kind, name="",
+  description="", body="", source="", group="", overwrite=False)` lets
+  an agent install a brand-new skill (doc or code) directly into the
+  shared directory, no admin UI involved. `kind="doc"` just calls
+  `registry.create_doc_skill()`. `kind="code"` stages `source` as a
+  `.py` file in a temp dir under `tools_dir`, validates it with the
+  existing `manifest.validate_dir()`, then moves it into place at the
+  validated `manifest.name` — reuses the project's existing validation
+  instead of writing a new one, and never leaves a half-written skill
+  dir behind on a validation failure. Resolves the shared directory via
+  `common.config.load_config().shared_dir_path`, same call the admin UI
+  and the MCP server's own `main()` already use, so it always targets
+  whatever directory the running server is actually syncing from.
+- Verified live end-to-end: installed the skill into the real
+  `shared_dir`, confirmed it appears in `tools/list` after the next 5s
+  sync, then called it (as an actual MCP tool from this session) with
+  both `kind="doc"` and `kind="code"` — both new skills showed up
+  correctly (the code skill's `int` parameter got the right inferred
+  schema) — then removed the two throwaway test skills, keeping
+  `create_skill` itself installed.
+- No new backend code needed in `jupyter_mcp_tools` itself — this is
+  purely an example skill built entirely out of the already-public
+  `registry`/`manifest`/`config` API, same category as
+  `examples/echo_tool`/`setup_files_tool`/`repo_explainer`. Documented in
+  README.md under "A skill that creates other skills".

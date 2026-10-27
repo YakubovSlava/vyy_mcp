@@ -773,6 +773,34 @@ available to every user of the server — without restarting anything.
   of this UI (native `<dialog>`s, plain `oninput` filtering). No new
   template context: the tooltip just repeats `t.name`/`t.kind`/
   `t.group`/`t.description`, already passed to every row.
+- **A code-skill example that lets an agent create new skills itself**
+  (`examples/create_skill/tool.py`), per explicit request ("навык,
+  который позволит делать навыки по формату для нас"). One function,
+  `create_skill(kind, name="", description="", body="", source="",
+  group="", overwrite=False)`: for `kind="doc"` it's a thin wrapper
+  around `registry.create_doc_skill()` (same path "✎ Написать навык"
+  uses in the admin UI); for `kind="code"` there was no existing
+  "install from a raw source string" entry point (`registry.install_tool`
+  only takes a zip archive path), so it stages `source` as a `.py` file
+  under a temp dir inside `tools_dir`, validates it with the existing
+  `manifest.validate_dir()` (the same function used to re-read an
+  already-installed code skill), then moves the staged dir into place at
+  `manifest.name` — reusing validation rather than duplicating it, and
+  avoiding a half-written skill dir by validating into a scratch
+  directory first and only `move()`-ing it into its final name on
+  success. Resolves the shared directory via
+  `common/config.load_config().shared_dir_path` — the same call both the
+  admin UI and `mcp_server/server.py`'s `main()` already use — so it
+  targets exactly the directory the running server is syncing from, no
+  separate configuration. This only works, and is only acceptable to
+  build, because the project's threat model already treats an installed
+  skill as trusted code with full filesystem/import access (see "No
+  sandboxing of tool execution" below) — the meta-skill doesn't need any
+  new privilege, it just uses the same `jupyter_mcp_tools.common` import
+  access any other skill already has. New skills created this way show
+  up after the next 5s sync tick, same as any admin-UI-created skill;
+  there's deliberately no "delete" counterpart exposed through MCP —
+  removal stays an admin-UI-only action.
 
 ## Shared tools directory layout
 

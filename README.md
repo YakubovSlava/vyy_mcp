@@ -469,6 +469,32 @@ The response is `{"message": "...", "files": [{"filename", "content",
 working skill using this pattern (zip it the same way as any other
 example: `python examples/build_archive.py setup_files_tool`).
 
+### A skill that creates other skills
+
+`examples/create_skill/tool.py` is a meta-skill: once installed (like any
+other code skill), an agent can call it to install a **new** skill
+directly into the shared directory, without the admin UI — handy for
+letting an agent bootstrap its own tools on the fly.
+
+- `create_skill(kind="doc", name=..., description=..., body=..., group="")`
+  writes a new doc skill, same as "✎ Написать навык" in the admin UI.
+- `create_skill(kind="code", source="<full .py file content>")` validates
+  and writes a new code skill from raw source — name/description/group
+  all come from the function/module in `source`, same as a code-skill
+  upload.
+- `overwrite=True` replaces an existing skill with the same name.
+
+It writes straight into `load_config().shared_dir_path` — the exact
+directory the running MCP server is already syncing from (`common/config.py`
+is shared between the admin UI and the server process) — so the new
+skill shows up in `tools/list` after the next background sync, with no
+restart. This only works because this project's threat model already
+trusts whatever runs inside an installed skill (no sandboxing — see
+"Known limitations" in `PLAN.md`): the meta-skill imports
+`jupyter_mcp_tools.common` and writes to the server's own filesystem,
+which is no different from what any other installed skill could already
+do.
+
 ## Automatic git push on install, delete and description edits
 
 If the shared tools directory is **already a git repository with its
