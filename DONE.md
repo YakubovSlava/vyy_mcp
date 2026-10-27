@@ -1434,3 +1434,20 @@
   edited `instructions` in the real config.json and confirmed it
   surfaced without restarting the server (after the one-connection lag
   described above), then reset the real config back to the default.
+
+## 2026-10-27 (add a "reset to default" button for the agent instructions)
+
+- Per explicit request ("можешь добавить кнопку отката к дефолтному?")
+  — a dedicated one-click action rather than relying on remembering
+  that clearing the textarea and saving has the same effect. New `POST
+  /config/instructions/reset` (main-host-only, 403 like
+  `/config/shared-dir`) sets `instructions = None` and saves. Added as
+  a second submit button in the existing "⚙" dialog's form, using
+  `formaction` to target the reset route for that one click instead of
+  nesting a second `<form>` (not allowed in HTML).
+- Tests: `test_reset_instructions_button_route` in `test_admin_api.py`;
+  `test_child_relay_cannot_reset_instructions` in `test_remote_mode.py`
+  (real subprocess + real `curl`, same pattern as the existing
+  `test_child_relay_cannot_change_shared_dir`). Full suite: 180/180
+  passing. Verified the route is wired on the real running admin UI
+  (unauthenticated POST correctly 303s to `/login` rather than 404ing).

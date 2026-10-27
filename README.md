@@ -514,10 +514,11 @@ admin to install the script as a skill and call it as a tool instead.
 Takes effect without restarting the MCP server (the field is re-read on
 every sync tick), with one caveat: a connection already in flight at the
 exact moment you save won't see the change — only the connection after
-that one will. Clearing the textarea resets it back to the built-in
-default (`common/config.py`'s `DEFAULT_INSTRUCTIONS`) rather than
-leaving it empty. Main-host-only, like the git-push/Bitbucket fields in
-the same dialog.
+that one will. A "Сбросить к стандартному" button next to the textarea
+(or just clearing it and saving) resets it back to the built-in default
+(`common/config.py`'s `DEFAULT_INSTRUCTIONS`) rather than leaving it
+empty. Main-host-only, like the git-push/Bitbucket fields in the same
+dialog.
 
 ## Automatic git push on install, delete and description edits
 

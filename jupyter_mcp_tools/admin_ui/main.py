@@ -550,6 +550,20 @@ def set_shared_dir(
     return _redirect_to_root(request, message=f"Общая директория с навыками установлена на {new_path}")
 
 
+@app.post("/config/instructions/reset")
+def reset_instructions(request: Request, _admin: str | None = Depends(require_admin_page)):
+    """One-click revert of the agent's system instructions to
+    DEFAULT_INSTRUCTIONS — the same effect as clearing the textarea in
+    the "⚙" dialog and saving, as a dedicated action so an admin doesn't
+    have to retype or blank the field by hand."""
+    if MAIN_HOST:
+        raise HTTPException(status_code=403, detail="Instructions are managed on the main host only.")
+    config = load_config()
+    config.instructions = None
+    save_config(config)
+    return _redirect_to_root(request, message="Системная инструкция сброшена к стандартной.")
+
+
 @app.post("/api/users/register")
 def register_user(username: str = Form(...)):
     """Public — called by the distributed connection notebook's

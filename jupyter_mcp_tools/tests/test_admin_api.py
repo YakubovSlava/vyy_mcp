@@ -160,6 +160,23 @@ def test_clearing_instructions_resets_to_default(client, tmp_path):
     assert config.effective_instructions == DEFAULT_INSTRUCTIONS
 
 
+def test_reset_instructions_button_route(client, tmp_path):
+    client.post(
+        "/config/shared-dir",
+        data={"path": str(tmp_path / "shared"), "instructions": "Custom agent instructions."},
+    )
+
+    r = client.post("/config/instructions/reset")
+    assert r.status_code == 200
+    assert "сброшена" in r.text
+
+    from jupyter_mcp_tools.common.config import DEFAULT_INSTRUCTIONS, load_config
+
+    config = load_config()
+    assert config.instructions is None
+    assert config.effective_instructions == DEFAULT_INSTRUCTIONS
+
+
 def test_upload_pushes_to_git_when_configured(client, tmp_path):
     # A bare "remote" plus a working clone of it -- local file:// transport
     # needs no real credentials, so this exercises the actual upload ->

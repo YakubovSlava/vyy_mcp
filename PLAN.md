@@ -885,6 +885,18 @@ available to every user of the server — without restarting anything.
     before this feature) — without it, those tests would silently read
     (never write) whatever real config.json happened to exist on the
     machine running them.
+  - **Follow-up: a dedicated "Сбросить к стандартному" button**, per
+    explicit request, rather than relying on an admin remembering that
+    clearing the textarea and saving has the same effect. New `POST
+    /config/instructions/reset` (main-host-only, same 403 as
+    `/config/shared-dir`) sets `instructions = None` and saves — no new
+    form, just a second submit button in the same `<form>` using HTML5's
+    `formaction` to target the reset route instead of
+    `/config/shared-dir` for that one click (avoids a nested `<form>`,
+    which HTML doesn't allow, while still reusing the same dialog). The
+    button submits the whole enclosing form, so `path`'s `required`
+    attribute still applies — harmless in practice since the dialog
+    always opens with `path` already pre-filled.
 
 ## Shared tools directory layout
 
