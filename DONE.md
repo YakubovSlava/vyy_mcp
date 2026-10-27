@@ -1377,3 +1377,16 @@
   other relay test). Full suite: 173/173 passing. Verified the route
   itself is wired on the real running admin UI (unauthenticated request
   correctly 303s to `/login` rather than 404ing).
+
+## 2026-10-27 (fix: skill hover tooltip was clipped by the card's edges)
+
+- Per explicit request ("При наведении на скилл его всплывашка
+  скрывается за границами блока") — `.card` had `overflow: hidden`
+  (to stop rows' square corners poking out past the card's own rounded
+  ones), which also clipped the `.skill-tooltip` div since it's a
+  descendant of `.skill-row`, a descendant of `.card`. Removed `overflow:
+  hidden` from `.card` and rounded the first/last child's own corners
+  instead (`.card > :first-child`/`:last-child`) — rows have no
+  background of their own distinct from the card's, so nothing was
+  actually relying on that clip. Pure CSS change in `base.html`; full
+  suite still 173/173 (no test coverage for this — purely visual).

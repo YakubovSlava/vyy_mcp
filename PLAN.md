@@ -773,6 +773,13 @@ available to every user of the server — without restarting anything.
   of this UI (native `<dialog>`s, plain `oninput` filtering). No new
   template context: the tooltip just repeats `t.name`/`t.kind`/
   `t.group`/`t.description`, already passed to every row.
+  (Follow-up fix: the tooltip initially got clipped at the card's edges
+  — `.card` had `overflow: hidden` to keep rows' square corners from
+  poking out past its own rounded ones, and that clipped the tooltip
+  too, since it's a descendant. Removed `overflow: hidden` from `.card`
+  and rounded the first/last child's own corners instead
+  (`.card > :first-child`/`:last-child`) — rows have no background of
+  their own, so nothing was actually relying on the clip.)
 - **A code-skill example that lets an agent create new skills itself**
   (`examples/create_skill/tool.py`), per explicit request ("навык,
   который позволит делать навыки по формату для нас"). One function,
