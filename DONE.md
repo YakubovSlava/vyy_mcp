@@ -1344,3 +1344,36 @@
   `registry`/`manifest`/`config` API, same category as
   `examples/echo_tool`/`setup_files_tool`/`repo_explainer`. Documented in
   README.md under "A skill that creates other skills".
+
+## 2026-10-27 (download an installed skill back as a .zip)
+
+- Per explicit request ("сделать возможность скачивать пак с навыком") —
+  the reverse of `/tools/upload`. `registry.build_download_archive()`
+  zips an installed skill's folder with content at the archive root (no
+  wrapping folder), skipping `.skill_meta.json` for a doc skill (that's
+  this app's own bookkeeping, regenerated from the form on re-upload
+  anyway) — the result round-trips straight back through
+  `install_tool()` unchanged.
+- `curl_client.get()`/`post()` both capture the response body as text,
+  which would corrupt a binary zip when a child relay proxies a
+  download — added `curl_client.download()`, which uses `curl -o <path>
+  -w "%{http_code}"` to write the body to a file and only read the
+  status code off stdout.
+- Wired as `GET /tools/{name}/download` (HTML, session-gated,
+  `FileResponse` + a `BackgroundTask` cleaning up the temp zip) and `GET
+  /api/tools/{name}/download` (JSON API — what a child relay's `curl`
+  call hits). Deliberately not gated by `MCP_TOOLS_READ_ONLY` — it's a
+  read, not a mutation. Added a plain "Скачать" link per skill row in
+  `index.html` (no JS needed).
+- Tests: `test_build_download_archive_round_trips_code_skill`,
+  `..._excludes_meta_file_for_doc_skill`, `..._round_trips_through_reupload`,
+  `..._missing_tool_raises` in `test_registry.py`;
+  `test_download_installed_skill_returns_zip`,
+  `test_download_missing_skill_returns_404`,
+  `test_download_allowed_in_read_only_mode` in `test_admin_api.py`;
+  `test_child_relay_download_round_trip`,
+  `test_child_relay_download_missing_skill_returns_404` in
+  `test_remote_mode.py` (real subprocess + real `curl`, same as every
+  other relay test). Full suite: 173/173 passing. Verified the route
+  itself is wired on the real running admin UI (unauthenticated request
+  correctly 303s to `/login` rather than 404ing).

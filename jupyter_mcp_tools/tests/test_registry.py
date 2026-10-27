@@ -261,3 +261,53 @@ def test_update_doc_skill_metadata_changes_group(tmp_path, shared_dir):
 
     tools = registry.list_tools(shared_dir)
     assert tools[0].group == "networking"
+
+
+def test_build_download_archive_round_trips_code_skill(make_archive, shared_dir, tmp_path):
+    archive = make_archive("greet", VALID_MODULE)
+    registry.install_tool(archive, shared_dir)
+
+    downloaded = registry.build_download_archive(shared_dir, "greet")
+    try:
+        with zipfile.ZipFile(downloaded) as zf:
+            assert zf.namelist() == ["tool.py"]
+
+        other_shared_dir = tmp_path / "other"
+        manifest = registry.install_tool(downloaded, other_shared_dir)
+        assert manifest.name == "greet"
+    finally:
+        downloaded.unlink()
+
+
+def test_build_download_archive_excludes_meta_file_for_doc_skill(tmp_path, shared_dir):
+    archive = _make_doc_skill_archive(tmp_path, extra_files={"references/notes.md": "notes"})
+    _install_doc_skill(archive, shared_dir)
+
+    downloaded = registry.build_download_archive(shared_dir, "repo-explainer")
+    try:
+        with zipfile.ZipFile(downloaded) as zf:
+            names = set(zf.namelist())
+        assert names == {"SKILL.md", "references/notes.md"}
+    finally:
+        downloaded.unlink()
+
+
+def test_build_download_archive_round_trips_through_reupload(tmp_path, shared_dir):
+    archive = _make_doc_skill_archive(tmp_path, extra_files={"references/notes.md": "notes"})
+    _install_doc_skill(archive, shared_dir)
+
+    downloaded = registry.build_download_archive(shared_dir, "repo-explainer")
+    try:
+        other_shared_dir = tmp_path / "other"
+        manifest = registry.install_tool(
+            downloaded, other_shared_dir, name="repo-explainer", description="Re-uploaded."
+        )
+        assert manifest.name == "repo-explainer"
+        assert manifest.files == ("references/notes.md",)
+    finally:
+        downloaded.unlink()
+
+
+def test_build_download_archive_missing_tool_raises(shared_dir):
+    with pytest.raises(ToolNotFoundError):
+        registry.build_download_archive(shared_dir, "nope")

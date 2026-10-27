@@ -70,7 +70,12 @@ password you just created. From there you can:
    MCP server process (defaults to `~/.jupyter_mcp_tools/shared_tools`).
 2. **Upload a tool archive** (`.zip`) — see "Tool archive format" below.
    On success the tool is installed for every user immediately.
-3. **Remove** an installed tool.
+3. **Download** an installed tool back as a `.zip` — the "Скачать" link
+   next to each skill. Available even in read-only mode (it's not a
+   mutation). The archive is byte-for-byte what `/tools/upload` expects,
+   so it can be re-uploaded as-is or shared with another instance of
+   this project.
+4. **Remove** an installed tool.
 
 `examples/echo_tool/` has the source for a minimal example skill —
 archives aren't committed to the repo, build one yourself:

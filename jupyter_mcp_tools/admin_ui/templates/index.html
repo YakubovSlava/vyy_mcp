@@ -60,6 +60,7 @@
         </div>
         <div class="tt-desc">{{ t.description }}</div>
       </div>
+      <a class="edit-btn" href="tools/{{ t.name }}/download" title="Скачать .zip с этим навыком">Скачать</a>
       {% if not read_only %}
       {% if t.kind == "doc" %}
       <button type="button" class="edit-btn" data-name="{{ t.name }}" data-description="{{ t.description }}" data-group="{{ t.group or '' }}" onclick="openEditDescription(this)">Редактировать</button>

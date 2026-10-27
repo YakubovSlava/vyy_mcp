@@ -1,4 +1,5 @@
 import importlib
+import io
 import subprocess
 import zipfile
 
@@ -529,6 +530,38 @@ def test_upload_accepts_archive_with_wrapping_folder(client, tmp_path):
 
     r = client.post("/tools/upload", files={"archive": ("wrapped.zip", archive.read_bytes(), "application/zip")})
     assert "«greet»" in r.text
+
+
+def test_download_installed_skill_returns_zip(client, tmp_path):
+    data = _archive_bytes(tmp_path)
+    client.post("/tools/upload", files={"archive": ("greet.zip", data, "application/zip")})
+
+    r = client.get("/tools/greet/download")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/zip"
+    assert "greet.zip" in r.headers["content-disposition"]
+    with zipfile.ZipFile(io.BytesIO(r.content)) as zf:
+        assert zf.namelist() == ["tool.py"]
+
+
+def test_download_missing_skill_returns_404(client):
+    r = client.get("/tools/nope/download")
+    assert r.status_code == 404
+
+
+def test_download_allowed_in_read_only_mode(read_only_client):
+    # Downloading isn't a mutation, so it stays available even when
+    # MCP_TOOLS_READ_ONLY=1 blocks install/delete/edit.
+    from jupyter_mcp_tools.common import registry
+    from jupyter_mcp_tools.common.config import load_config
+
+    shared_dir = load_config().shared_dir_path
+    registry.create_doc_skill(shared_dir, name="repo-explainer", description="desc", body="body")
+
+    r = read_only_client.get("/tools/repo-explainer/download")
+    assert r.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(r.content)) as zf:
+        assert zf.namelist() == ["SKILL.md"]
 
 
 def test_groups_page_create_list_delete(client):

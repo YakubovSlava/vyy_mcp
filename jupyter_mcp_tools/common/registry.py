@@ -26,6 +26,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .doc_skill import (
+    _META_FILENAME,
     DocSkillManifest,
     check_name_and_description,
     create_doc_skill_dir,
@@ -226,6 +227,32 @@ def list_tools(shared_dir: Path) -> list[AnyManifest]:
         if manifest is not None:
             manifests.append(manifest)
     return manifests
+
+
+def build_download_archive(shared_dir: Path, name: str) -> Path:
+    """Zip an already-installed skill's folder back into a `.zip` shaped
+    exactly like the one `install_tool` expects on re-upload (skill
+    content at the archive's root, no wrapping folder) — so a downloaded
+    skill can be re-uploaded as-is elsewhere. Excludes `.skill_meta.json`
+    for a doc skill: that file is this app's own bookkeeping, not skill
+    content, and a fresh upload regenerates it from the form anyway.
+
+    Returns the path to a new temporary file; the caller deletes it once
+    the response has been sent (same pattern as every other temp-archive
+    use in this module).
+    """
+    skill_dir = tools_dir(shared_dir) / name
+    if not skill_dir.exists():
+        raise ToolNotFoundError(f"tool '{name}' is not installed")
+
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+        archive_path = Path(tmp.name)
+    with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path in sorted(skill_dir.rglob("*")):
+            if path.is_dir() or path.name == _META_FILENAME:
+                continue
+            zf.write(path, path.relative_to(skill_dir))
+    return archive_path
 
 
 def remove_tool(shared_dir: Path, name: str) -> None:

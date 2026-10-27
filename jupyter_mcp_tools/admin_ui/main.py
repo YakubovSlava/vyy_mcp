@@ -33,9 +33,10 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
+from starlette.background import BackgroundTask
 from ..common import auth, curl_client, git_push, registry, session, users
 from ..common import groups as group_store
 from ..common.config import AppConfig, load_config, save_config
@@ -724,6 +725,49 @@ def delete_tool(request: Request, name: str, _admin: str | None = Depends(requir
     return _redirect_to_root(request, message=message)
 
 
+@app.get("/tools/{name}/download")
+def download_tool(name: str, _admin: str | None = Depends(require_admin_page)):
+    """Downloads an installed skill back as a `.zip` — the reverse of
+    `/tools/upload`. Not a mutation, so this stays available even under
+    MCP_TOOLS_READ_ONLY=1."""
+    if MAIN_HOST:
+        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        try:
+            status = curl_client.download(
+                f"{MAIN_HOST}/api/tools/{name}/download", CHILD_USER, CHILD_PASSWORD, tmp_path, insecure=INSECURE_TLS
+            )
+        except curl_client.CurlError as exc:
+            tmp_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=502, detail=f"Не удалось подключиться к основному хосту: {exc}") from exc
+        if status != 200:
+            try:
+                payload = json.loads(tmp_path.read_text())
+            except (OSError, json.JSONDecodeError):
+                payload = {}
+            tmp_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=status, detail=payload.get("error", f"Основной хост вернул HTTP {status}."))
+        return FileResponse(
+            tmp_path,
+            filename=f"{name}.zip",
+            media_type="application/zip",
+            background=BackgroundTask(tmp_path.unlink, missing_ok=True),
+        )
+
+    config = load_config()
+    shared_dir = config.shared_dir_path
+    try:
+        archive_path = registry.build_download_archive(shared_dir, name)
+    except ToolNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileResponse(
+        archive_path,
+        filename=f"{name}.zip",
+        media_type="application/zip",
+        background=BackgroundTask(archive_path.unlink, missing_ok=True),
+    )
+
+
 @app.post("/tools/{name}/edit-description")
 def edit_doc_skill_description(
     request: Request,
@@ -860,6 +904,22 @@ def api_create_doc_skill(
 
     push_error = _maybe_git_push(config, shared_dir, f"Add skill '{manifest.name}'")
     return {"name": manifest.name, "git_push_error": push_error}
+
+
+@app.get("/api/tools/{name}/download")
+def api_download_tool(name: str, _admin: str | None = Depends(require_admin_api)):
+    config = load_config()
+    shared_dir = config.shared_dir_path
+    try:
+        archive_path = registry.build_download_archive(shared_dir, name)
+    except ToolNotFoundError as exc:
+        return JSONResponse(status_code=404, content={"error": str(exc)})
+    return FileResponse(
+        archive_path,
+        filename=f"{name}.zip",
+        media_type="application/zip",
+        background=BackgroundTask(archive_path.unlink, missing_ok=True),
+    )
 
 
 @app.post("/api/tools/{name}/delete")

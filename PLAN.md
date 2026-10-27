@@ -801,6 +801,35 @@ available to every user of the server — without restarting anything.
   up after the next 5s sync tick, same as any admin-UI-created skill;
   there's deliberately no "delete" counterpart exposed through MCP —
   removal stays an admin-UI-only action.
+- **An installed skill can be downloaded back as a `.zip`** — the
+  reverse of `/tools/upload` — per explicit request ("сделать
+  возможность скачивать пак с навыком"). `registry.build_download_archive()`
+  zips the skill's installed folder with its content at the archive's
+  root (no wrapping folder), excluding `.skill_meta.json` for a doc
+  skill (that file is this app's own bookkeeping — re-uploading the
+  downloaded zip regenerates it from the form, so shipping it would just
+  be redundant, not harmful). The result is byte-for-byte the shape
+  `install_tool()` already expects, so a downloaded skill can be hand-
+  edited and re-uploaded, or shared with someone running a separate
+  instance of this project, without any reformatting — tested directly
+  (`test_build_download_archive_round_trips_through_reupload`).
+  Wired as `GET /tools/{name}/download` (HTML, behind the session login,
+  serves the file via `FileResponse` + a `BackgroundTask` that deletes
+  the temp zip once the response finishes streaming) and `GET
+  /api/tools/{name}/download` (JSON API, what a child relay's `curl`
+  call hits). Deliberately **not** gated by `MCP_TOOLS_READ_ONLY` —
+  downloading isn't a mutation, so it stays available even when
+  install/delete/edit are disabled (`test_download_allowed_in_read_only_mode`).
+  The existing `curl_client` module only had `get()`/`post()`, both of
+  which capture the response body as `text` — fine for JSON, but it
+  would corrupt a binary zip. Added `curl_client.download()`, which uses
+  `curl -o <path> -w "%{http_code}"` to write the body straight to a
+  file and only capture the (safely-text) status code on stdout, instead
+  of reusing the existing text-capturing helpers. A "Скачать" link was
+  added next to each skill row in `index.html` (a plain `<a href>`, no
+  JS — `FileResponse`'s default `Content-Disposition: attachment`
+  already makes the browser download rather than navigate), visible
+  regardless of `read_only` since it's non-mutating.
 
 ## Shared tools directory layout
 

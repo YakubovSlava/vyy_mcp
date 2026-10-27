@@ -11,6 +11,7 @@ call graph.
 from __future__ import annotations
 
 import importlib
+import io
 import os
 import socket
 import subprocess
@@ -133,6 +134,23 @@ def test_child_relay_upload_and_delete_round_trip(child_client, tmp_path):
 
     r = child_client.get("/")
     assert "Навыки пока не установлены" in r.text
+
+
+def test_child_relay_download_round_trip(child_client, tmp_path):
+    data = _archive_bytes(tmp_path)
+    r = child_client.post("/tools/upload", files={"archive": ("greet.zip", data, "application/zip")})
+    assert r.status_code == 200
+
+    r = child_client.get("/tools/greet/download")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/zip"
+    with zipfile.ZipFile(io.BytesIO(r.content)) as zf:
+        assert zf.namelist() == ["tool.py"]
+
+
+def test_child_relay_download_missing_skill_returns_404(child_client):
+    r = child_client.get("/tools/nope/download")
+    assert r.status_code == 404
 
 
 def test_child_relay_address_dialog_shows_main_host_readonly(child_client, main_host):
