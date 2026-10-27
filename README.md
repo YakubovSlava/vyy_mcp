@@ -500,6 +500,25 @@ trusts whatever runs inside an installed skill (no sandboxing — see
 which is no different from what any other installed skill could already
 do.
 
+### The agent's system instructions are admin-editable
+
+The "⚙" settings dialog on the Skills page also has a **Системная
+инструкция для агента** textarea — this becomes the MCP server's own
+`instructions` field, which every connecting agent receives
+automatically at `initialize` time, with no action needed from the
+individual user. Useful for standing guidance that applies to everyone,
+e.g. by default it tells the agent: if a direct shell/script execution
+attempt is blocked by its sandbox, don't try to work around it — ask an
+admin to install the script as a skill and call it as a tool instead.
+
+Takes effect without restarting the MCP server (the field is re-read on
+every sync tick), with one caveat: a connection already in flight at the
+exact moment you save won't see the change — only the connection after
+that one will. Clearing the textarea resets it back to the built-in
+default (`common/config.py`'s `DEFAULT_INSTRUCTIONS`) rather than
+leaving it empty. Main-host-only, like the git-push/Bitbucket fields in
+the same dialog.
+
 ## Automatic git push on install, delete and description edits
 
 If the shared tools directory is **already a git repository with its

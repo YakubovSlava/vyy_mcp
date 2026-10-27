@@ -22,6 +22,25 @@ def _zip_example(name: str, dest: Path) -> Path:
     return archive
 
 
+def test_build_app_defaults_to_default_instructions(shared_dir):
+    from jupyter_mcp_tools.common.config import DEFAULT_INSTRUCTIONS
+
+    app = build_app(shared_dir)
+    assert app.instructions == DEFAULT_INSTRUCTIONS
+
+
+def test_sync_picks_up_custom_instructions_live(shared_dir):
+    from jupyter_mcp_tools.common.config import AppConfig, save_config
+
+    app = build_app(shared_dir)
+    sync_tools(app, shared_dir)
+
+    save_config(AppConfig(shared_dir=str(shared_dir), instructions="Custom live instructions."))
+    sync_tools(app, shared_dir)
+
+    assert app.instructions == "Custom live instructions."
+
+
 def test_sync_registers_and_removes_tools(make_archive, shared_dir):
     app = build_app(shared_dir)
 

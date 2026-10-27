@@ -837,6 +837,54 @@ available to every user of the server — without restarting anything.
   JS — `FileResponse`'s default `Content-Disposition: attachment`
   already makes the browser download rather than navigate), visible
   regardless of `read_only` since it's non-mutating.
+- **The MCP server's own `instructions` string is admin-editable, not
+  hardcoded**, per explicit request. `instructions` is the one MCP
+  protocol field a connecting agent receives automatically as system
+  context on every `initialize` call — the natural place to put a
+  standing hint like "if a direct shell/script execution attempt is
+  blocked by your sandbox, ask an admin to install it as a skill and
+  call it as a tool instead" (the concrete prompt that motivated this —
+  "агент в системе не может выполнять многие скрипты... как лучше дать
+  подсказку"), reaching every user automatically instead of relying on
+  each of them to be told separately. `common/config.py` gained
+  `AppConfig.instructions: str | None` (persisted like every other
+  config field) plus a module-level `DEFAULT_INSTRUCTIONS` constant
+  (now including that sandboxing hint) and an `effective_instructions`
+  property (`self.instructions or DEFAULT_INSTRUCTIONS`) so "unset"
+  reads as the default rather than `None`/empty.
+  - `FastMCP.instructions` turned out to be a read-only property (just
+    proxies to `_mcp_server.instructions`, no setter) — but the
+    underlying low-level `Server.instructions` is a plain mutable
+    string attribute, and `create_initialization_options()` reads it
+    fresh rather than baking it in once. `sync_tools()` now also sets
+    `app._mcp_server.instructions = load_config().effective_instructions`
+    on every tick, so an edit reaches new connections without
+    restarting the MCP server process — the same live-update promise
+    this project already makes for the tool list itself.
+  - **Real caveat, found by testing against the actual running
+    server, not just unit tests:** a session's `instructions` snapshot
+    is computed *before* that same session's own lifespan (which is
+    what calls `sync_tools`) has run — so a connection already in
+    flight at the exact moment of an edit won't see it; only the
+    connection *after* that one will, once some session's lifespan has
+    had a chance to refresh the attribute first. In practice, with any
+    normal amount of connection traffic this is unnoticeable; documented
+    honestly in both the code comment and the admin UI's own copy
+    rather than claiming instant effect.
+  - Surfaced as a `<textarea name="instructions">` in the existing "⚙"
+    dialog (`index.html`), pre-filled with the *effective* value so the
+    textarea always shows what's actually being sent, never a
+    misleading blank; clearing it resets to `DEFAULT_INSTRUCTIONS`
+    rather than becoming an unrecoverable empty string. Main-host-only,
+    same as the git-push/Bitbucket fields already in that dialog — a
+    child relay has no MCP server of its own to configure this for.
+  - Added `shared_dir`-fixture-level HOME/`MCP_TOOLS_CONFIG_PATH`
+    isolation to `conftest.py`: `sync_tools`/`build_app` now call
+    `load_config()`, which previously had no reason to be isolated in
+    `test_server_sync.py` (nothing there ever touched config.json
+    before this feature) — without it, those tests would silently read
+    (never write) whatever real config.json happened to exist on the
+    machine running them.
 
 ## Shared tools directory layout
 

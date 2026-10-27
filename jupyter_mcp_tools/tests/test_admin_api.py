@@ -127,6 +127,39 @@ def test_set_shared_dir_keeps_git_password_when_left_blank(client, tmp_path):
     assert config.git_push_password == "s3cr3t"
 
 
+def test_set_shared_dir_saves_custom_instructions(client, tmp_path):
+    client.post(
+        "/config/shared-dir",
+        data={"path": str(tmp_path / "shared"), "instructions": "Custom agent instructions."},
+    )
+
+    from jupyter_mcp_tools.common.config import load_config
+
+    config = load_config()
+    assert config.instructions == "Custom agent instructions."
+    assert config.effective_instructions == "Custom agent instructions."
+
+
+def test_address_dialog_shows_default_instructions_when_unset(client):
+    r = client.get("/")
+    assert "jupyter-mcp-tools admin UI" in r.text
+    assert "create_skill" in r.text
+
+
+def test_clearing_instructions_resets_to_default(client, tmp_path):
+    client.post(
+        "/config/shared-dir",
+        data={"path": str(tmp_path / "shared"), "instructions": "Custom agent instructions."},
+    )
+    client.post("/config/shared-dir", data={"path": str(tmp_path / "shared"), "instructions": ""})
+
+    from jupyter_mcp_tools.common.config import DEFAULT_INSTRUCTIONS, load_config
+
+    config = load_config()
+    assert config.instructions is None
+    assert config.effective_instructions == DEFAULT_INSTRUCTIONS
+
+
 def test_upload_pushes_to_git_when_configured(client, tmp_path):
     # A bare "remote" plus a working clone of it -- local file:// transport
     # needs no real credentials, so this exercises the actual upload ->

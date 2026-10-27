@@ -1390,3 +1390,47 @@
   background of their own distinct from the card's, so nothing was
   actually relying on that clip. Pure CSS change in `base.html`; full
   suite still 173/173 (no test coverage for this — purely visual).
+
+## 2026-10-27 (make the MCP server's `instructions` admin-editable)
+
+- Per explicit request, following a discussion about agents in this
+  system being sandboxed from running most scripts directly but able to
+  run skills shared through this MCP server — the fix is a standing
+  hint baked into the one MCP field every connecting agent gets
+  automatically: `instructions`. Previously hardcoded in
+  `mcp_server/server.py`'s `build_app()`; now `common/config.py`'s
+  `AppConfig.instructions` (persisted, editable) plus a
+  `DEFAULT_INSTRUCTIONS` constant (extended with the sandboxing hint:
+  "if blocked, ask an admin to install the script as a skill and call
+  it as a tool instead") and an `effective_instructions` property.
+- `FastMCP.instructions` has no setter — mutated the underlying
+  `app._mcp_server.instructions` directly instead (plain attribute,
+  re-read fresh by `create_initialization_options()` per session, not
+  baked in once), added to `sync_tools()`'s per-tick work so an edit
+  reaches new connections without restarting the server.
+- Found by testing against the real running server (not just unit
+  tests): there's a one-connection lag — a session's `instructions` is
+  snapshotted *before* its own lifespan (which calls `sync_tools`) runs,
+  so a connection in flight exactly when you save won't see the change;
+  the one after it will. Documented honestly in the code comment and
+  the admin UI copy instead of claiming instant effect.
+- Added a `<textarea name="instructions">` to the existing "⚙" dialog
+  in `index.html`, pre-filled with the effective (stored-or-default)
+  value; clearing it resets to the default rather than becoming stuck
+  empty. Wired through `/config/shared-dir`, main-host-only like the
+  git-push/Bitbucket fields already there.
+- Had to add HOME/`MCP_TOOLS_CONFIG_PATH` isolation to the `shared_dir`
+  fixture in `conftest.py` — `sync_tools`/`build_app` now call
+  `load_config()`, which `test_server_sync.py` never needed to isolate
+  before this feature touched it.
+- Tests: `test_set_shared_dir_saves_custom_instructions`,
+  `test_address_dialog_shows_default_instructions_when_unset`,
+  `test_clearing_instructions_resets_to_default` in `test_admin_api.py`;
+  `test_build_app_defaults_to_default_instructions`,
+  `test_sync_picks_up_custom_instructions_live` in
+  `test_server_sync.py`. Full suite: 178/178 passing. Verified live
+  against the real running MCP server: confirmed the new default text
+  (with the sandboxing hint) in a real `initialize` response, then
+  edited `instructions` in the real config.json and confirmed it
+  surfaced without restarting the server (after the one-connection lag
+  described above), then reset the real config back to the default.

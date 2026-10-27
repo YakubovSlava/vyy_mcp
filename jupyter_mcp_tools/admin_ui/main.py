@@ -262,6 +262,7 @@ def _render(request: Request, **extra):
         bitbucket_base_url = ""
         git_push_username = ""
         git_push_password_set = False
+        instructions = ""
         group_names = [g["name"] for g in _remote_list_groups()[0]]
     else:
         config = load_config()
@@ -275,6 +276,7 @@ def _render(request: Request, **extra):
         # whether one is already set, so the form can show a "уже
         # установлен" placeholder instead of leaking it into the HTML.
         git_push_password_set = bool(config.git_push_password)
+        instructions = config.effective_instructions
         group_names = [g.name for g in group_store.list_groups(shared_dir)]
 
     return templates.TemplateResponse(
@@ -288,6 +290,7 @@ def _render(request: Request, **extra):
             "bitbucket_base_url": bitbucket_base_url,
             "git_push_username": git_push_username,
             "git_push_password_set": git_push_password_set,
+            "instructions": instructions,
             "group_names": group_names,
             "tools": tools,
             "message": message,
@@ -519,6 +522,7 @@ def set_shared_dir(
     bitbucket_base_url: str = Form(""),
     git_push_username: str = Form(""),
     git_push_password: str = Form(""),
+    instructions: str = Form(""),
     _admin: str | None = Depends(require_admin_page),
 ):
     if MAIN_HOST:
@@ -529,7 +533,10 @@ def set_shared_dir(
     # A blank git_push_username/git_push_password means "leave it as is" —
     # the password field in particular is never pre-filled with the real
     # value (see _render()), so submitting the form without retyping it
-    # must not silently disable the push.
+    # must not silently disable the push. `instructions` is pre-filled
+    # with the *effective* value (stored or default) rather than being
+    # kept-as-is-if-blank — so clearing the textarea deliberately resets
+    # back to DEFAULT_INSTRUCTIONS rather than becoming unrecoverable.
     existing = load_config()
     save_config(
         AppConfig(
@@ -537,6 +544,7 @@ def set_shared_dir(
             bitbucket_base_url=bitbucket_base_url or None,
             git_push_username=git_push_username or existing.git_push_username,
             git_push_password=git_push_password or existing.git_push_password,
+            instructions=instructions or None,
         )
     )
     return _redirect_to_root(request, message=f"Общая директория с навыками установлена на {new_path}")

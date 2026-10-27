@@ -151,6 +151,19 @@ def sync_tools(app: FastMCP, shared_dir: Path) -> None:
     falls back to standalone registration, same as having no group —
     it still gets a `[group] ` description prefix, just not hidden.
     """
+    # `FastMCP.instructions` is read-only (it just proxies to
+    # `_mcp_server.instructions`), so there's no public setter — but the
+    # low-level attribute is a plain mutable string, which
+    # `create_initialization_options()` reads fresh, not once at startup
+    # — no restart needed for an edit to reach new connections. One
+    # real wrinkle: a session's own `instructions` snapshot is taken
+    # *before* that same session's lifespan (which is what calls
+    # `sync_tools`, including this very line) has run, so a connection
+    # already in flight at the moment of the edit won't see it — only
+    # the connection *after* that one will, once some session's lifespan
+    # has had a chance to refresh this attribute first.
+    app._mcp_server.instructions = load_config().effective_instructions
+
     manifests = {m.name: m for m in registry.list_tools(shared_dir)}
     real_groups = {g.name: g for g in group_store.list_groups(shared_dir)}
 
@@ -250,11 +263,11 @@ def build_app(shared_dir: Path, host: str = "127.0.0.1", port: int = 8765) -> Fa
     # "421 Misdirected Request" because of this — see PLAN.md.
     return FastMCP(
         "jupyter-mcp-tools",
-        instructions=(
-            "Tools in this server are installed by an administrator via the "
-            "jupyter-mcp-tools admin UI and are shared by every user of this "
-            "JupyterLab server."
-        ),
+        # Just the startup value — sync_tools() (called once immediately
+        # by `lifespan` above, then every SYNC_INTERVAL_SECONDS) re-reads
+        # this from config on every tick, so an admin edit to it takes
+        # effect live without restarting this process.
+        instructions=load_config().effective_instructions,
         lifespan=lifespan,
         host=host,
         port=port,
