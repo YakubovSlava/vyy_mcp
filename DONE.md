@@ -1664,3 +1664,39 @@
   `test_remote_mode.py`. Full suite: 192/192 passing. Verified the
   route is wired on the real running admin UI (unauthenticated POST
   correctly 303s to `/login` rather than 404ing).
+
+## 2026-10-28 (switch run_from_git to uv, add a Windows .bat twin, verification commands)
+
+- Per explicit request — `scripts/run_from_git.sh` now uses `uv`/`uvx`
+  instead of `python -m venv` + `pip install -e` (faster, especially on
+  repeat launches — confirmed live: cold run installs from scratch,
+  warm run against the same cache took ~1.6s). Checks `command -v
+  uvx` first; only installs `uv` itself (its own official standalone
+  installer, not pip) if missing. Uses `uvx --from <local clone dir>`
+  rather than `--from git+<url>`, so `uv` builds from the already-
+  `git pull`ed checkout instead of refetching the repo itself.
+- Explored `uvx --from git+<repo>` with *no* wrapper script at all (the
+  literal "zero scripts" answer) and confirmed live why it's not the
+  right primary path for this project: on a genuinely fresh `$HOME`
+  with no prior shared_dir, `tools/list` comes back **empty** — not
+  even `create_skill` — since without pointing `--shared-dir` at a
+  clone's `shared_tools/`, nothing is installed anywhere to serve yet.
+  Fine for someone who already has their own populated shared_dir
+  elsewhere; wrong default for "install into an agent and get working
+  skills out of the box".
+- Added `scripts/run_from_git.bat` — the Windows twin, same logic in
+  batch (`if not defined`/`if exist`/`where`), installing `uv` via its
+  PowerShell one-liner instead of `curl | sh`. Not runnable from this
+  environment (no Windows host); flagged as needing verification on a
+  real Windows machine before trusting it.
+- Documented two verification commands (one per OS) using the official
+  MCP Inspector's `--cli` mode, which can drive any stdio command
+  directly and print its `tools/list` response with no real agent
+  wiring needed — confirmed the Linux one live against this repo's
+  actual pushed script.
+- README's "Zero-install" section rewritten to cover both scripts, the
+  `claude mcp add`/`opencode mcp add` forms, and the two verification
+  commands. Full suite: 192/192 passing (no test coverage for the
+  shell/batch scripts themselves — verified via the Inspector commands
+  and direct MCP stdio client sessions instead, same as every other
+  live check in this project).

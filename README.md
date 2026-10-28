@@ -241,36 +241,81 @@ directory with `--shared-dir`.
 ### Zero-install: run straight from this git repo, no hosting needed
 
 The stdio usage above still assumes the project is already installed
-somewhere (`/path/to/.venv/bin/...`). `scripts/run_from_git.sh` removes
-even that step — point an MCP client's `command` straight at it (or at
-a one-liner that clones it first) and the client gets a fully working
-server with **no persistent host, no manual install, no admin UI
-required**, the same way an `npx`-launched Node MCP server works, just
-for this Python project:
+somewhere (`/path/to/.venv/bin/...`). `scripts/run_from_git.sh` (Linux/
+macOS) and `scripts/run_from_git.bat` (Windows) remove even that step —
+point an MCP client's `command` straight at one of them (or at a
+one-liner that clones the repo first) and the client gets a fully
+working server with **no persistent host, no manual install, no admin
+UI required**, the same way an `npx`-launched Node MCP server works,
+just for this Python project.
+
+Every time the client launches the script, it: clones the repo (or
+`git pull`s it if already cloned), uses `uv` if it's already on
+`PATH` — installing it via its own official standalone installer (not
+pip, a prebuilt binary) if it isn't — then runs `uvx --from <clone>
+jupyter-mcp-tools-server --transport stdio --shared-dir
+<clone>/shared_tools`. `uvx` resolves and caches this project's
+dependencies in its own managed environment, so repeat launches (the
+common case — an MCP client may spawn this fresh per session) are
+near-instant after the first run.
+
+**Linux/macOS** — `mcpServers` config:
 
 ```json
 {
   "mcpServers": {
     "jupyter-mcp-tools": {
-      "command": "bash",
-      "args": ["-c", "d=\"$HOME/.cache/jupyter-mcp-tools-src\"; [ -d \"$d/.git\" ] || git clone -q https://github.com/YakubovSlava/vyy_mcp.git \"$d\"; exec bash \"$d/scripts/run_from_git.sh\""]
+      "command": "sh",
+      "args": ["-c", "d=\"$HOME/.cache/jupyter-mcp-tools-src\"; [ -d \"$d/.git\" ] || git clone -q https://github.com/YakubovSlava/vyy_mcp.git \"$d\"; exec sh \"$d/scripts/run_from_git.sh\""]
     }
   }
 }
 ```
 
-Or register it the same way with Claude Code's own CLI (`claude mcp
-add`), which takes the same command + args directly:
+Or via a CLI that registers servers directly (Claude Code's `claude mcp
+add`, opencode's `opencode mcp add`, ...), which both take the same
+command + args shape after `--`:
 
 ```bash
-claude mcp add jupyter-mcp-tools -- bash -c 'd="$HOME/.cache/jupyter-mcp-tools-src"; [ -d "$d/.git" ] || git clone -q https://github.com/YakubovSlava/vyy_mcp.git "$d"; exec bash "$d/scripts/run_from_git.sh"'
+claude mcp add jupyter-mcp-tools -- sh -c 'd="$HOME/.cache/jupyter-mcp-tools-src"; [ -d "$d/.git" ] || git clone -q https://github.com/YakubovSlava/vyy_mcp.git "$d"; exec sh "$d/scripts/run_from_git.sh"'
+
+opencode mcp add jupyter-mcp-tools --global -- sh -c 'd="$HOME/.cache/jupyter-mcp-tools-src"; [ -d "$d/.git" ] || git clone -q https://github.com/YakubovSlava/vyy_mcp.git "$d"; exec sh "$d/scripts/run_from_git.sh"'
 ```
 
-Every time the client launches this, the script: clones the repo (or
-`git pull`s it if already cloned), creates a venv inside that cache
-directory and `pip install -e`s the project into it (first run only —
-later runs just reuse it), then execs `jupyter-mcp-tools-server
---transport stdio --shared-dir <clone>/shared_tools`.
+**Windows** — same idea, `run_from_git.bat` instead:
+
+```json
+{
+  "mcpServers": {
+    "jupyter-mcp-tools": {
+      "command": "cmd",
+      "args": ["/c", "if not exist \"%USERPROFILE%\\.cache\\jupyter-mcp-tools-src\\.git\" git clone -q https://github.com/YakubovSlava/vyy_mcp.git \"%USERPROFILE%\\.cache\\jupyter-mcp-tools-src\" & \"%USERPROFILE%\\.cache\\jupyter-mcp-tools-src\\scripts\\run_from_git.bat\""]
+    }
+  }
+}
+```
+
+(Once you already have a clone, pointing either CLI's `command`/`args`
+straight at `scripts\run_from_git.bat <that path>` works too — the
+one-liner above is only for a true first-ever run with nothing cloned
+yet.)
+
+**Verifying either script actually serves tools**, without wiring up a
+real client first — the official
+[MCP Inspector](https://modelcontextprotocol.io/docs/tools/inspector)'s
+CLI mode can drive any stdio command directly:
+
+```bash
+# Linux/macOS
+npx @modelcontextprotocol/inspector --cli sh /path/to/vyy_mcp/scripts/run_from_git.sh --method tools/list
+
+# Windows
+npx @modelcontextprotocol/inspector --cli cmd /c C:\path\to\vyy_mcp\scripts\run_from_git.bat --method tools/list
+```
+
+Both print the server's `tools/list` response as JSON and exit — a
+quick way to confirm the script actually launches, installs, and
+answers before trusting a real agent to it.
 
 `shared_tools/` is committed directly in this repo — a ready-to-serve
 copy of the example skills (no zipping/uploading needed), so a brand

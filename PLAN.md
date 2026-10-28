@@ -1121,6 +1121,54 @@ available to every user of the server — without restarting anything.
     normal silent no-op (which makes sense for an automatic trigger on
     every skill save, but would be a confusing silent failure for a
     button someone explicitly clicked expecting a push to happen).
+- **`scripts/run_from_git.sh` switched from `python -m venv` + `pip
+  install -e` to `uv`/`uvx`, and gained a Windows twin
+  (`scripts/run_from_git.bat`), per explicit request.** `uv` resolves
+  and caches dependencies far faster than stdlib `venv`+`pip` on repeat
+  runs (relevant here specifically because an MCP client may spawn
+  this script fresh per session) — confirmed live: a cold run installs
+  the project from scratch; a second run against the same cache
+  completed in ~1.6s. `uv` itself isn't assumed to be preinstalled: the
+  script checks `command -v uvx` first and only falls back to running
+  `uv`'s own official standalone installer (a prebuilt binary fetched
+  via its install script — not pip, no Python-level dependency chain)
+  if it's missing, then uses the path it installs to directly rather
+  than hoping `PATH` picked it up in the same shell invocation.
+  - Uses `uvx --from <clone-dir>` (a local path), not `--from
+    git+<url>` — confirmed live that this makes `uv` build straight
+    from the already-`git pull`ed local checkout instead of asking `uv`
+    itself to refetch the repo a second time over the network.
+  - **Explored and rejected as the *primary* path: `uvx --from
+    git+<repo-url>` with no wrapper script at all** (no clone, no
+    `shared_tools/` reference) — genuinely the "zero scripts" answer to
+    "why do we even need an intermediate shell script", and it does
+    work: `uv` handles fetching/caching/installing entirely on its
+    own. Rejected specifically for *this* project's first-run
+    experience, confirmed by testing with a deliberately fresh `$HOME`
+    (no prior `shared_dir`): the server starts and answers
+    `initialize` fine, but `tools/list` comes back **empty** — not even
+    `create_skill` — because without `--shared-dir` pointing at a
+    clone's `shared_tools/`, there's nothing installed anywhere yet to
+    serve. Good only for someone who already has their own populated
+    `shared_dir` elsewhere and just wants a lightweight way to point at
+    it; not what "install this project into an agent and get working
+    skills" means for a first-time user, which is the actual goal
+    `scripts/run_from_git.*` serves.
+  - `run_from_git.bat` mirrors the `.sh` script's logic exactly
+    (clone-or-pull, check/install `uv`, `uvx --from <clone>`) using
+    batch's `if not defined`/`if exist`/`where` idioms instead of
+    POSIX `sh` — installs `uv` via its PowerShell one-liner
+    (`irm https://astral.sh/uv/install.ps1 | iex`) rather than the
+    `curl | sh` installer. Not runnable from this environment (no
+    Windows host available) — verify with the MCP Inspector command
+    below on an actual Windows machine before trusting it to a real
+    agent.
+  - **Verification, both scripts**: the official MCP Inspector's `--cli`
+    mode can drive any stdio command directly and print its
+    `tools/list` response, without wiring up a real agent first —
+    `npx @modelcontextprotocol/inspector --cli sh scripts/run_from_git.sh --method tools/list`
+    (confirmed live against this repo's actual pushed script) and the
+    Windows equivalent swapping in `cmd /c ...\run_from_git.bat`.
 
 ## Shared tools directory layout
 
