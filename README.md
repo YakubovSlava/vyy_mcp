@@ -596,23 +596,29 @@ push` runs in that directory after every **install**, **delete**, and
 - A child relay's upload also triggers this: the main host pushes after
   installing, and a push failure is reported back through the relay's
   own success banner too.
-- **Every push also ensures a `run.sh` (+ `.gitignore`) exists at the
-  root of the shared directory, committed alongside the skills.**
-  Unlike `scripts/run_from_git.sh` in *this* source repo (which clones
-  the whole project, code included), the shared directory only ever
-  holds skill *data* — `tools/`, `groups.json` — so its own `run.sh`
-  installs the `jupyter-mcp-tools` package from
-  `common.git_push.DEFAULT_PACKAGE_REPO_URL` (override with
-  `JUPYTER_MCP_TOOLS_PACKAGE_REPO_URL`) into a local venv, then runs
-  the server with `--shared-dir` pointing at itself. The result: once
-  git push is configured, **the shared directory's own repo is always
-  a ready-to-run snapshot of your current skills** — anyone you give
-  access to can `git clone` it and run `./run.sh` (or point an MCP
-  client's `command` straight at it), with no admin UI, no hosting,
-  and no separate "example skills" copy to keep in sync by hand.
-  `run.sh` is regenerated (only rewritten if its content actually
-  changed) on every push, so hand-editing it is pointless — it's
-  managed entirely by this feature.
+- **Every push also ensures `run.sh`, `.gitignore`, and a vendored copy
+  of the `jupyter_mcp_tools` package itself (`_vendor/`) exist at the
+  root of the shared directory, committed alongside the skills.** The
+  shared directory only ever holds skill *data* (`tools/`,
+  `groups.json`) on its own — unlike `scripts/run_from_git.sh` in
+  *this* source repo, which clones the whole project including the
+  code. So the push step also copies the running server's own
+  `jupyter_mcp_tools` package + `pyproject.toml`/`requirements.txt`
+  straight into `shared_dir/_vendor/`, and `run.sh` does `pip install
+  -e _vendor` — meaning a clone of the shared directory never needs to
+  reach the *main* source repo at all, only PyPI for this project's
+  own third-party dependencies (fastapi, uvicorn, ...), same as
+  installing any Python package. (If pushed from a non-editable
+  install with no source tree to copy, vendoring is skipped and
+  `run.sh` falls back to `pip install git+<main repo>` instead.)
+  The result: once git push is configured, **the shared directory's
+  own repo is an absolutely self-sufficient, ready-to-run snapshot of
+  your current skills** — anyone you give access to can `git clone` it
+  and run `./run.sh` (or point an MCP client's `command` straight at
+  it), with no admin UI, no hosting, and no dependency on this source
+  repo being reachable. `run.sh`/`_vendor/` are regenerated on every
+  push (only actually rewritten when content changed), so hand-editing
+  either is pointless — they're fully machine-managed.
 
 ## Running tests
 

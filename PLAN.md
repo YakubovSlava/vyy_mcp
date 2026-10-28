@@ -1055,6 +1055,54 @@ available to every user of the server — without restarting anything.
     `run.sh` directly (pointed at a local `file://` package source for
     speed) — it installed the package into its own venv and served the
     pushed skill over a real MCP stdio session with no other setup.
+  - **Follow-up, per explicit request — "абсолютно самодостаточный"
+    (absolutely self-sufficient)**: the `run.sh` above still pip-
+    installed from `git+<main repo URL>` at run time — self-sufficient
+    enough to never need the admin UI/hosting, but still reaching out
+    to the *source* repo over the network every time. Confirmed via
+    AskUserQuestion that this was specifically what needed fixing (not
+    e.g. "also copy more scripts in") — a shared_dir repo on its own
+    should never need the main repo to exist or be reachable at all.
+  - `_ensure_vendored_package()`: copies this process's own
+    `jupyter_mcp_tools` package (plus `pyproject.toml`/
+    `requirements.txt`) straight into `shared_dir/_vendor/` on every
+    push, right next to `run.sh`/`.gitignore`. `run.sh`'s template
+    changed to `pip install -e "$VENDOR_DIR"` when `_vendor/` exists,
+    falling back to the old `git+<repo>` behavior only for a shared_dir
+    pushed before this feature existed (or pushed from a non-editable
+    install with nothing to vendor — see below). The *only* remaining
+    network dependency is PyPI, for this project's own third-party
+    packages (fastapi, uvicorn, mcp, ...) — unavoidable for installing
+    any Python package at all, and explicitly not what "самодостаточный"
+    was about.
+  - Locating what to vendor (`_package_source_root()`) can't assume
+    `importlib.metadata`'s `direct_url.json` is present — this
+    project's own dev `.venv` turned out not to have one even though
+    it's a perfectly good editable install (older setuptools "legacy
+    editable" mode records this differently) — so it instead walks up
+    from the running process's own `jupyter_mcp_tools.__file__` to the
+    package's parent directory and checks for a sibling
+    `pyproject.toml`. True for this project's actual layout (the
+    package sits directly at the repo root) whenever it's genuinely
+    editable-installed; `None` for a built-wheel install, where
+    there's no source tree on disk to copy at all — vendoring is
+    skipped entirely in that case (logged, not an error), and `run.sh`
+    falls back to the `git+` install.
+  - `.gitignore` gained `_vendor/*.egg-info/` alongside `.run-venv/` —
+    `pip install -e` on the vendored copy drops its own build metadata
+    there, which would otherwise accumulate as noise in every future
+    commit (the vendored *package itself* is `rmtree`'d and recopied
+    fresh every push regardless, so that part never needed ignoring).
+  - Verified live, specifically designed to rule out "it worked by
+    accident because it fell back to the main repo": pushed a skill
+    into a fresh bare+clone pair (confirmed `_vendor/jupyter_mcp_tools/
+    common/git_push.py` etc. landed in the commit), did a *separate*
+    clone of that bare repo, and ran its `run.sh` with
+    `JUPYTER_MCP_TOOLS_PACKAGE_REPO_URL` deliberately pointed at a
+    nonexistent URL — it still installed and served the pushed skill
+    correctly, since the vendored copy was used, not the fallback.
+    New `test_push_shared_dir_vendors_the_package_for_self_sufficiency`
+    in `test_git_push.py`. Full suite: 188/188 passing.
 
 ## Shared tools directory layout
 

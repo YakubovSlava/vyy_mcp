@@ -1610,3 +1610,35 @@
   then did a completely separate `git clone` of the bare repo and ran
   its committed `run.sh` directly — served the pushed skill over a
   real MCP stdio session with zero manual setup.
+
+## 2026-10-28 (vendor the full package into shared_dir — true self-sufficiency)
+
+- Per explicit request/confirmation ("нужен полный локальный код
+  (вендоринг)") — `run.sh` still installed from `git+<main repo>` at
+  run time, so a shared_dir repo on its own still depended on the
+  main source repo being reachable over the network. Fixed with
+  `_ensure_vendored_package()` in `common/git_push.py`: copies the
+  running process's own `jupyter_mcp_tools` package (plus
+  `pyproject.toml`/`requirements.txt`) into `shared_dir/_vendor/` on
+  every push, next to `run.sh`/`.gitignore`. `run.sh` now does `pip
+  install -e "$VENDOR_DIR"` when it exists, falling back to the old
+  `git+` install only for a shared_dir pushed before this existed, or
+  pushed from a non-editable (wheel) install with no source tree to
+  copy.
+- `_package_source_root()` locates what to vendor by walking up from
+  the running process's own `jupyter_mcp_tools.__file__` to find a
+  sibling `pyproject.toml` — not `importlib.metadata`'s
+  `direct_url.json`, which turned out to be absent even for this
+  project's own editable dev `.venv` (older setuptools "legacy
+  editable" install). Returns `None` (vendoring skipped, logged) for a
+  non-editable install.
+- `.gitignore` gained `_vendor/*.egg-info/` (build metadata `pip
+  install -e` drops next to the vendored copy) alongside `.run-venv/`.
+- Verified live specifically to rule out an accidental fallback to the
+  main repo: pushed a skill into a fresh bare+clone pair, cloned that
+  bare repo *again* separately, and ran its `run.sh` with
+  `JUPYTER_MCP_TOOLS_PACKAGE_REPO_URL` pointed at a URL that doesn't
+  exist — it still installed and served the skill correctly, proving
+  the vendored copy (not the fallback) was actually used. New
+  `test_push_shared_dir_vendors_the_package_for_self_sufficiency` in
+  `test_git_push.py`. Full suite: 188/188 passing.
