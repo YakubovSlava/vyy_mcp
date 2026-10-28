@@ -424,6 +424,33 @@ def test_edit_button_data_attributes_survive_quotes_in_description(client, tmp_p
     assert "&#34;tricky&#34;" in r.text or "&#x27;" in r.text or "&#39;" in r.text
 
 
+def test_skill_row_shows_category_left_of_name_without_kind_badge(client, tmp_path):
+    data = _archive_bytes(tmp_path)
+    client.post("/tools/upload", files={"archive": ("greet.zip", data, "application/zip")})
+
+    r = client.get("/")
+    assert "без категории" in r.text
+    # The kind badge markup only appears once per skill (inside the
+    # hover tooltip) -- the always-visible row no longer repeats it.
+    assert r.text.count('class="skill-kind kind-code">код</span>') == 1
+    # The category span comes before the name span in source order,
+    # i.e. visually to its left in the row's grid.
+    assert r.text.index("без категории") < r.text.index('class="skill-name"')
+
+
+def test_skill_row_shows_real_category_when_group_set(client, tmp_path):
+    data = _doc_skill_archive_bytes(tmp_path)
+    client.post(
+        "/tools/upload",
+        files={"archive": ("doc.zip", data, "application/zip")},
+        data={"name": "doc-skill", "description": "desc", "group": "networking"},
+    )
+
+    r = client.get("/")
+    assert 'class="skill-group">networking</span>' in r.text
+    assert "без категории" not in r.text
+
+
 def test_edit_description_rejects_code_skill(client, tmp_path):
     data = _archive_bytes(tmp_path)
     client.post("/tools/upload", files={"archive": ("greet.zip", data, "application/zip")})

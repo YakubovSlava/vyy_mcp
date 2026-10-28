@@ -917,6 +917,26 @@ available to every user of the server — without restarting anything.
     project's first test of `jupyter_ext.py`): one GET, one POST, and a
     loop over PUT/DELETE/PATCH, all asserting the right status (307, or
     302 for GET) and the correctly rewritten `Location`.
+- **The Skills page row layout became a real grid, with the kind badge
+  dropped and the category always shown**, per explicit request
+  ("Надпись skill.md зачем... Категорию вставь слева... Должна быть
+  сетка"). The row used `display: flex`, so columns never actually
+  lined up once descriptions/names had different lengths — switched to
+  `display: grid; grid-template-columns: 140px 160px 1fr auto;`, but
+  scoped to `.skills-card .skill-row` rather than the bare `.skill-row`
+  class, since `groups.html` and `users.html` reuse that same class
+  with a different, smaller set of columns — a global grid change would
+  have scrambled those two pages' layout. The category/group badge
+  moved to the first column (left of the name) and now always renders
+  — "без категории" (styled muted, `.skill-group.none`) instead of
+  disappearing, so the grid's first column is never empty/misaligned.
+  The "SKILL.md"/"код" kind badge was dropped from the always-visible
+  row entirely (it added clutter without being useful at a glance) but
+  kept in the hover tooltip, where there's room for more detail anyway.
+  Action buttons (Скачать/Редактировать/Удалить) now share one
+  `.skill-actions` flex-wrapped grid cell instead of each needing its
+  own grid column, since their count varies (read-only mode, code vs
+  doc skill).
 
 ## Shared tools directory layout
 

@@ -1474,3 +1474,25 @@
   one POST, and PUT/DELETE/PATCH in a loop, each asserting the right
   status code and rewritten `Location` header. Full suite: 184/184
   passing.
+
+## 2026-10-28 (skill list: drop the kind badge, category to the left, real grid)
+
+- Per explicit request: the always-visible "SKILL.md"/"код" kind badge
+  on every row added no information worth the clutter — removed from
+  the row (kept in the hover tooltip, where there's room to spell out
+  more detail). The category/group badge moved to the *left* of the
+  name (was to its right) and now always renders, showing "без
+  категории" instead of disappearing when a skill has no group —
+  styled muted/grey (`.skill-group.none`) to read as "empty" rather
+  than a real category. The row itself was flex (`.skill-row`), so
+  columns never lined up across rows when text lengths differed —
+  switched to a real CSS grid (`grid-template-columns: 140px 160px 1fr
+  auto`) scoped to `.skills-card .skill-row` specifically, so
+  `groups.html`/`users.html` (which reuse the plain `.skill-row` class
+  with a different column count) keep their existing flex layout
+  unaffected. Action buttons (Скачать/Редактировать/Удалить) now sit in
+  a `.skill-actions` flex wrapper so they share one grid cell instead
+  of each needing a dedicated grid column.
+- Tests: `test_skill_row_shows_category_left_of_name_without_kind_badge`,
+  `test_skill_row_shows_real_category_when_group_set` in
+  `test_admin_api.py`. Full suite: 186/186 passing.

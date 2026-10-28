@@ -44,31 +44,32 @@
 {% if tools %}
 <input type="search" id="skillSearch" class="skill-search" placeholder="Искать по имени, описанию или группе…" oninput="filterSkills(this.value)" />
 {% endif %}
-<div class="card">
+<div class="card skills-card">
   {% if tools %}
     {% for t in tools %}
     <div class="skill-row" data-search="{{ (t.name + ' ' + t.description + ' ' + (t.group or '')) | lower }}">
+      <span class="skill-group{{ '' if t.group else ' none' }}">{{ t.group or "без категории" }}</span>
       <span class="skill-name">{{ t.name }}</span>
-      {% if t.group %}<span class="skill-group">{{ t.group }}</span>{% endif %}
-      <span class="skill-kind kind-{{ t.kind }}">{{ "SKILL.md" if t.kind == "doc" else "код" }}</span>
       <span class="skill-desc">{{ t.description }}</span>
       <div class="skill-tooltip">
         <div class="tt-title">
           <span>{{ t.name }}</span>
           <span class="skill-kind kind-{{ t.kind }}">{{ "SKILL.md" if t.kind == "doc" else "код" }}</span>
-          {% if t.group %}<span class="skill-group">{{ t.group }}</span>{% endif %}
+          <span class="skill-group{{ '' if t.group else ' none' }}">{{ t.group or "без категории" }}</span>
         </div>
         <div class="tt-desc">{{ t.description }}</div>
       </div>
-      <a class="edit-btn" href="tools/{{ t.name }}/download" title="Скачать .zip с этим навыком">Скачать</a>
-      {% if not read_only %}
-      {% if t.kind == "doc" %}
-      <button type="button" class="edit-btn" data-name="{{ t.name }}" data-description="{{ t.description }}" data-group="{{ t.group or '' }}" onclick="openEditDescription(this)">Редактировать</button>
-      {% endif %}
-      <form method="post" action="tools/{{ t.name }}/delete" onsubmit="return confirm('Удалить {{ t.name }} для всех пользователей?');">
-        <button type="submit" class="remove-btn">Удалить</button>
-      </form>
-      {% endif %}
+      <div class="skill-actions">
+        <a class="edit-btn" href="tools/{{ t.name }}/download" title="Скачать .zip с этим навыком">Скачать</a>
+        {% if not read_only %}
+        {% if t.kind == "doc" %}
+        <button type="button" class="edit-btn" data-name="{{ t.name }}" data-description="{{ t.description }}" data-group="{{ t.group or '' }}" onclick="openEditDescription(this)">Редактировать</button>
+        {% endif %}
+        <form method="post" action="tools/{{ t.name }}/delete" onsubmit="return confirm('Удалить {{ t.name }} для всех пользователей?');">
+          <button type="submit" class="remove-btn">Удалить</button>
+        </form>
+        {% endif %}
+      </div>
     </div>
     {% endfor %}
     <div class="empty-state" id="skillSearchEmpty" style="display:none;">Ничего не найдено по этому запросу.</div>
