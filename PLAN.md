@@ -1103,6 +1103,24 @@ available to every user of the server — without restarting anything.
     correctly, since the vendored copy was used, not the fallback.
     New `test_push_shared_dir_vendors_the_package_for_self_sufficiency`
     in `test_git_push.py`. Full suite: 188/188 passing.
+  - **A manual "push now" button, per explicit follow-up.** Vendoring
+    only happens as a side effect of `_maybe_git_push()`, which only
+    runs from a skill/group mutation (install/delete/edit, create/
+    delete) — so an admin who just edited this project's own source
+    code had no way to get that change vendored into `shared_dir`
+    without also touching some unrelated skill first. New `POST
+    /config/vendor/push` (main-host-only, `MCP_TOOLS_READ_ONLY`-gated
+    like every other mutating action) calls the exact same
+    `_maybe_git_push()` directly, with no skill involved at all — it's
+    the thinnest possible wrapper around the existing mechanism, not a
+    new push path. Surfaced as a "Запушить сейчас" button in the "⚙"
+    dialog (via `formaction`, same pattern as the instructions-reset
+    button) right under the git-push explanation text. If git push
+    isn't configured at all (`git_push_username`/`git_push_password`
+    empty), shows a clear error instead of `_maybe_git_push()`'s
+    normal silent no-op (which makes sense for an automatic trigger on
+    every skill save, but would be a confusing silent failure for a
+    button someone explicitly clicked expecting a push to happen).
 
 ## Shared tools directory layout
 

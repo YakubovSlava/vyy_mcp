@@ -120,7 +120,9 @@
       Git-пароль
       <input type="password" name="git_push_password" placeholder="{{ 'уже установлен — оставьте пустым, чтобы не менять' if git_push_password_set else '' }}" autocomplete="off" />
     </label>
-    <p style="margin-top:-0.5rem">Если заполнено и в общей директории уже настроен git-репозиторий — после каждого добавления навыка будет выполняться <code>git add/commit/push</code>. Пароль здесь никогда не показывается — пустое поле оставляет сохранённый без изменений.</p>
+    <p style="margin-top:-0.5rem">Если заполнено и в общей директории уже настроен git-репозиторий — после каждого добавления навыка будет выполняться <code>git add/commit/push</code>. Пароль здесь никогда не показывается — пустое поле оставляет сохранённый без изменений. Пуш автоматически обновляет и <code>run.sh</code>/<code>_vendor/</code> в этом репозитории (чтобы он оставался самодостаточным) — но только когда что-то реально происходит с навыком. Если вы поменяли код сервера и хотите обновить <code>_vendor/</code> прямо сейчас, без изменения навыков:
+      <button type="submit" formaction="config/vendor/push" class="edit-btn">Запушить сейчас</button>
+    </p>
     <label>
       Системная инструкция для агента
       <textarea name="instructions" rows="5">{{ instructions }}</textarea>

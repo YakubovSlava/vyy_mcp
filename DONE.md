@@ -1642,3 +1642,25 @@
   the vendored copy (not the fallback) was actually used. New
   `test_push_shared_dir_vendors_the_package_for_self_sufficiency` in
   `test_git_push.py`. Full suite: 188/188 passing.
+
+## 2026-10-28 (manual "push now" button for the vendored copy)
+
+- Per explicit follow-up — vendoring only runs as a side effect of a
+  skill/group mutation triggering `_maybe_git_push()`, so an admin who
+  just edited this project's own source had no way to push that change
+  into `shared_dir`'s `_vendor/` without touching an unrelated skill
+  first. Added `POST /config/vendor/push` — calls the exact same
+  `_maybe_git_push()` directly, no skill involved; gated by
+  `MCP_TOOLS_READ_ONLY` and main-host-only like every other mutating
+  route. Shows a clear error if git push isn't configured at all,
+  rather than `_maybe_git_push()`'s normal silent no-op (fine for an
+  automatic trigger, confusing for a button someone just clicked).
+- Added a "Запушить сейчас" button in the "⚙" dialog (`formaction`,
+  same pattern as the instructions-reset button).
+- Tests: `test_push_vendor_now_pushes_without_any_skill_change`,
+  `test_push_vendor_now_without_git_configured_shows_error`,
+  `test_push_vendor_now_blocked_in_read_only_mode` in
+  `test_admin_api.py`; `test_child_relay_cannot_push_vendor_now` in
+  `test_remote_mode.py`. Full suite: 192/192 passing. Verified the
+  route is wired on the real running admin UI (unauthenticated POST
+  correctly 303s to `/login` rather than 404ing).

@@ -564,6 +564,30 @@ def reset_instructions(request: Request, _admin: str | None = Depends(require_ad
     return _redirect_to_root(request, message="Системная инструкция сброшена к стандартной.")
 
 
+@app.post("/config/vendor/push")
+def push_vendor_now(request: Request, _admin: str | None = Depends(require_admin_page)):
+    """Manually git-pushes `shared_dir` right now, with no skill change
+    involved — `run.sh`/`_vendor/` only normally get refreshed as a side
+    effect of some skill mutation (install/delete/edit, or a group
+    create/delete) triggering `_maybe_git_push`; this exists so an admin
+    who just edited this project's own source code doesn't have to
+    touch an unrelated skill just to get that change vendored."""
+    if MAIN_HOST:
+        raise HTTPException(status_code=403, detail="Git push is managed on the main host only.")
+    if READ_ONLY:
+        return _redirect_to_root(request, error=READ_ONLY_MESSAGE)
+
+    config = load_config()
+    shared_dir = config.shared_dir_path
+    if not (config.git_push_username and config.git_push_password):
+        return _redirect_to_root(request, error="Git push не настроен — укажите логин и пароль выше.")
+
+    push_error = _maybe_git_push(config, shared_dir, "Refresh run.sh/_vendor")
+    if push_error:
+        return _redirect_to_root(request, error=f"git push не выполнен: {push_error}")
+    return _redirect_to_root(request, message="Запушено: run.sh и _vendor обновлены в репозитории навыков.")
+
+
 @app.post("/api/users/register")
 def register_user(username: str = Form(...)):
     """Public — called by the distributed connection notebook's

@@ -177,6 +177,52 @@ def test_reset_instructions_button_route(client, tmp_path):
     assert config.effective_instructions == DEFAULT_INSTRUCTIONS
 
 
+def test_push_vendor_now_pushes_without_any_skill_change(client, tmp_path):
+    # A bare "remote" plus a working clone, same pattern as
+    # test_upload_pushes_to_git_when_configured below -- but here no
+    # skill is ever installed, to confirm the button's whole point: a
+    # push (and the run.sh/_vendor refresh that comes with it) without
+    # needing to touch a skill first.
+    bare = tmp_path / "remote.git"
+    bare.mkdir()
+    _run("git", "init", "--bare", "-q", cwd=bare)
+
+    shared = tmp_path / "shared_clone"
+    _run("git", "clone", "-q", str(bare), str(shared), cwd=tmp_path)
+    _run("git", "config", "user.email", "test@example.com", cwd=shared)
+    _run("git", "config", "user.name", "Test", cwd=shared)
+    (shared / "README.md").write_text("init\n")
+    _run("git", "add", "-A", cwd=shared)
+    _run("git", "commit", "-q", "-m", "init", cwd=shared)
+    _run("git", "push", "-q", "origin", "HEAD", cwd=shared)
+
+    client.post(
+        "/config/shared-dir",
+        data={"path": str(shared), "git_push_username": "x", "git_push_password": "y"},
+    )
+
+    r = client.post("/config/vendor/push")
+    assert "Запушено" in r.text
+
+    log = subprocess.run(
+        ["git", "log", "--oneline", "-1"], cwd=bare, capture_output=True, text=True, check=True
+    ).stdout
+    assert "Refresh run.sh/_vendor" in log
+    assert (shared / "run.sh").exists()
+    assert (shared / "_vendor" / "jupyter_mcp_tools").is_dir()
+
+
+def test_push_vendor_now_without_git_configured_shows_error(client, tmp_path):
+    client.post("/config/shared-dir", data={"path": str(tmp_path / "shared")})
+    r = client.post("/config/vendor/push")
+    assert "не настроен" in r.text
+
+
+def test_push_vendor_now_blocked_in_read_only_mode(read_only_client):
+    r = read_only_client.post("/config/vendor/push")
+    assert "только просмотр" in r.text.lower()
+
+
 def test_upload_pushes_to_git_when_configured(client, tmp_path):
     # A bare "remote" plus a working clone of it -- local file:// transport
     # needs no real credentials, so this exercises the actual upload ->
