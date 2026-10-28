@@ -1529,3 +1529,33 @@
   to `/login`). Left the `jupyter-server` instance running (not a
   one-off) specifically so this proxy chain stays available for future
   bug hunts without needing a second machine to reproduce against.
+
+## 2026-10-28 (zero-install path: clone this repo and run the server directly)
+
+- Per explicit request — share this MCP server without hosting anything
+  at all, launched the way an `npx`-distributed Node MCP server would
+  be, just for Python. The stdio transport already needed nothing extra
+  (it's the CLI's default); added `scripts/run_from_git.sh`, meant to
+  sit directly behind an MCP client's `command`: clone-or-pull this
+  repo into a cache dir, create a venv there once (`pip install -e`,
+  no-op on later runs), then exec `jupyter-mcp-tools-server --transport
+  stdio --shared-dir <clone>/shared_tools`.
+- New top-level `shared_tools/` directory, committed directly in the
+  repo — ready-to-serve copies of the `examples/*` skills (already in
+  the installed `tools/<name>/...` shape, not the zip-for-upload
+  shape), so a brand-new clone has something to serve immediately.
+  `repo_explainer` needed a `.skill_meta.json` sidecar added (the
+  `examples/` copy doesn't carry one — that file normally comes from
+  the admin upload form); the three code skills needed nothing extra.
+- Documented in README ("Zero-install: run straight from this git
+  repo...") and PLAN.md, including how an admin can keep this snapshot
+  live: point the real hosted admin UI's shared directory at this
+  repo's own `shared_tools/` and set git push credentials for *this*
+  repo — the existing git-push-on-save feature (unchanged) then keeps
+  it current automatically. Deliberately additive, not a replacement
+  for the hosted admin UI / streamable-http model.
+- Verified the bootstrap script end to end: pointed it at a local clone
+  (via `JUPYTER_MCP_TOOLS_REPO_URL`/`JUPYTER_MCP_TOOLS_CACHE_DIR`
+  overrides) and confirmed clone → venv → install → `--help` passthrough
+  all worked; separately confirmed `registry.list_tools()` loads all
+  four seeded `shared_tools/` skills without error.

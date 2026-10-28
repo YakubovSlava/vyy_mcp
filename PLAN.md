@@ -959,6 +959,54 @@ available to every user of the server — without restarting anything.
   `.skill-actions` flex-wrapped grid cell instead of each needing its
   own grid column, since their count varies (read-only mode, code vs
   doc skill).
+- **A second, independent distribution path: clone this repo and run
+  the MCP server directly, no hosting at all** — per explicit request
+  ("сделать так, чтобы в репозитории была вся кодовая база для
+  поднятия сервера... через npx... без хостинга самого mcp"). Clarified
+  that this project is Python (FastMCP), not Node — `npx` doesn't
+  apply literally, but the thing being asked for already works for
+  free: `mcp_server/server.py`'s stdio transport (the CLI's *default*
+  transport, already documented under "Run the MCP server") needs no
+  persistent process and no admin UI at all — a client spawns it,
+  talks over stdio for the session, and it exits when the client
+  disconnects. The only missing piece was a zero-setup way to launch
+  it from a bare git URL.
+  - `scripts/run_from_git.sh`: clone-or-pull the repo into a cache dir,
+    create a venv in it once and `pip install -e` the project (no-op on
+    later runs), then exec `jupyter-mcp-tools-server --transport stdio
+    --shared-dir <clone>/shared_tools`. Meant to sit directly behind an
+    MCP client's own `command`, the same role `npx -y <package>` plays
+    for a Node MCP server in a client config — just a shell one-liner
+    instead, since this ecosystem has no equivalent single-binary
+    fetch-and-run convention.
+  - **`shared_tools/` is a new top-level directory, committed directly
+    in this repo** — a ready-to-serve copy of the existing
+    `examples/*` skills (not zipped/upload-shaped; already in the
+    `tools/<name>/...` layout `common/registry.py` expects installed
+    skills to be in), so a brand-new clone has something to serve on
+    the very first run, with no admin UI step first. `repo_explainer`
+    (a doc skill) needed a `.skill_meta.json` sidecar added
+    (description + empty group) that the `examples/` copy doesn't carry
+    — that file is normally supplied by the admin-upload form, not
+    present in an archive-shaped example — the code skills
+    (`create_skill`, `echo`, `make_setup_files`) needed nothing extra,
+    their manifest is just the function itself.
+  - **Keeping this snapshot current is explicitly the admin's own
+    choice, not automatic from this project's side**: point the *real*
+    hosted admin UI's shared tools directory at this same repo's
+    `shared_tools/` folder (and set git push credentials for *this*
+    repo in the "⚙" dialog) and the existing "Automatic git push on
+    install, delete and description edits" feature (unchanged, no new
+    code) does the rest — every admin-UI save already does `git add
+    shared_tools && git commit && git push` into whatever repo
+    `shared_dir` happens to live in. No special-casing needed for this
+    use case; it was already general-purpose.
+  - Deliberately **does not replace** the hosted admin UI / streamable-
+    http model documented above — that one still serves many
+    simultaneous JupyterLab users from one live, admin-editable
+    process. This is an *additional*, independent path for someone
+    without a JupyterLab deployment (or who just wants their own local
+    copy) to get the same skills with zero hosting.
 
 ## Shared tools directory layout
 

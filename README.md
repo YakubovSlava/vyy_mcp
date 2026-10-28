@@ -238,6 +238,44 @@ Both processes read the shared directory from the same config file
 `MCP_TOOLS_CONFIG_PATH`), or you can force the server to a specific
 directory with `--shared-dir`.
 
+### Zero-install: run straight from this git repo, no hosting needed
+
+The stdio usage above still assumes the project is already installed
+somewhere (`/path/to/.venv/bin/...`). `scripts/run_from_git.sh` removes
+even that step — point an MCP client's `command` straight at it (or at
+a one-liner that clones it first) and the client gets a fully working
+server with **no persistent host, no manual install, no admin UI
+required**, the same way an `npx`-launched Node MCP server works, just
+for this Python project:
+
+```json
+{
+  "mcpServers": {
+    "jupyter-mcp-tools": {
+      "command": "bash",
+      "args": ["-c", "d=\"$HOME/.cache/jupyter-mcp-tools-src\"; [ -d \"$d/.git\" ] || git clone -q https://github.com/YakubovSlava/vyy_mcp.git \"$d\"; exec bash \"$d/scripts/run_from_git.sh\""]
+    }
+  }
+}
+```
+
+Every time the client launches this, the script: clones the repo (or
+`git pull`s it if already cloned), creates a venv inside that cache
+directory and `pip install -e`s the project into it (first run only —
+later runs just reuse it), then execs `jupyter-mcp-tools-server
+--transport stdio --shared-dir <clone>/shared_tools`.
+
+`shared_tools/` is committed directly in this repo — a ready-to-serve
+copy of the example skills (no zipping/uploading needed), so a brand
+new clone has something to serve immediately. If you *also* run the
+hosted admin UI described above, you can keep the two in sync
+automatically: point its shared tools directory (the "⚙" dialog) at
+this repo's own `shared_tools/` folder and configure git push
+credentials there too (see "Automatic git push" below) — every
+admin-UI save then commits and pushes straight into this same repo, so
+anyone running the zero-install path always gets your current skill
+set, not a stale snapshot.
+
 ## Where data files live
 
 Four files hold this app's own state — `admins.json`, `config.json`,
