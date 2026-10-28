@@ -596,6 +596,23 @@ push` runs in that directory after every **install**, **delete**, and
 - A child relay's upload also triggers this: the main host pushes after
   installing, and a push failure is reported back through the relay's
   own success banner too.
+- **Every push also ensures a `run.sh` (+ `.gitignore`) exists at the
+  root of the shared directory, committed alongside the skills.**
+  Unlike `scripts/run_from_git.sh` in *this* source repo (which clones
+  the whole project, code included), the shared directory only ever
+  holds skill *data* — `tools/`, `groups.json` — so its own `run.sh`
+  installs the `jupyter-mcp-tools` package from
+  `common.git_push.DEFAULT_PACKAGE_REPO_URL` (override with
+  `JUPYTER_MCP_TOOLS_PACKAGE_REPO_URL`) into a local venv, then runs
+  the server with `--shared-dir` pointing at itself. The result: once
+  git push is configured, **the shared directory's own repo is always
+  a ready-to-run snapshot of your current skills** — anyone you give
+  access to can `git clone` it and run `./run.sh` (or point an MCP
+  client's `command` straight at it), with no admin UI, no hosting,
+  and no separate "example skills" copy to keep in sync by hand.
+  `run.sh` is regenerated (only rewritten if its content actually
+  changed) on every push, so hand-editing it is pointless — it's
+  managed entirely by this feature.
 
 ## Running tests
 

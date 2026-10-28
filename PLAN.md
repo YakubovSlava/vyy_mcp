@@ -1007,6 +1007,54 @@ available to every user of the server — without restarting anything.
     process. This is an *additional*, independent path for someone
     without a JupyterLab deployment (or who just wants their own local
     copy) to get the same skills with zero hosting.
+  - **Correction to the point above, found immediately by actually
+    trying it**: "point the real admin UI's `shared_dir` at this
+    repo's `shared_tools/` and the existing push feature does the
+    rest" was *not* actually sufficient on its own — the user tried
+    exactly that and nothing useful showed up. The reason: a pushed
+    `shared_dir` repo only ever contains skill **data**
+    (`tools/`/`groups.json`) — never the `jupyter_mcp_tools` Python
+    package/server code itself, which only lives in *this* source
+    repo. So a bare `git clone` of someone's `shared_dir` repo had
+    nothing in it capable of running anything; this wasn't "already
+    general-purpose" after all. Fixed properly below (`run.sh`
+    auto-generation), not by changing where the admin UI's
+    `shared_dir` points.
+- **`push_shared_dir()` now also generates a self-sufficient `run.sh`
+  (+ `.gitignore`) directly inside the shared directory, on every
+  push** — so *any* shared_dir, once git push is configured for it
+  (any remote, not just this project's own), becomes a clone-and-run
+  skill snapshot on its own, without the admin needing to point it at
+  anything special. `common/git_push.py` gained
+  `_ensure_run_script()`/`_ensure_gitignore()`, called right before
+  `git add -A` inside `push_shared_dir()` — writing (or, on every
+  later push, leaving alone if content is unchanged, so a push with no
+  real skill change still correctly has nothing to commit)
+  `run.sh`/`.gitignore` at the shared directory's root.
+  - `run.sh`'s content differs from `scripts/run_from_git.sh` in this
+    source repo for exactly the reason in the correction above: this
+    script's own directory *is* the skill data (no code to clone), so
+    it installs the `jupyter_mcp_tools` package itself from
+    `DEFAULT_PACKAGE_REPO_URL` (a constant in `git_push.py`, override
+    at run time with `JUPYTER_MCP_TOOLS_PACKAGE_REPO_URL`) into a
+    `.run-venv/` next to itself, then runs the server with
+    `--shared-dir` pointing at its own directory — rather than cloning
+    anything, since there's nothing further to clone.
+  - `run.sh` is treated as fully machine-managed: regenerated from the
+    same template on every push, overwritten whenever its content
+    differs from the current template (e.g., after this project's own
+    template changes) — explicitly not meant to be hand-edited.
+  - Tests: `test_push_shared_dir_writes_run_script_and_gitignore`
+    (checks the file's content/executable bit/.gitignore line, and
+    that a second push with no new skill changes doesn't produce an
+    extra empty commit) in `test_git_push.py`. Verified live end to
+    end outside the test suite too: pushed a real skill into a fresh
+    local bare+clone repo pair, confirmed `run.sh`/`.gitignore` landed
+    in the same commit as the skill, then did a *second*, completely
+    separate `git clone` of that bare repo and ran its committed
+    `run.sh` directly (pointed at a local `file://` package source for
+    speed) — it installed the package into its own venv and served the
+    pushed skill over a real MCP stdio session with no other setup.
 
 ## Shared tools directory layout
 

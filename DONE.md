@@ -1559,3 +1559,54 @@
   overrides) and confirmed clone → venv → install → `--help` passthrough
   all worked; separately confirmed `registry.list_tools()` loads all
   four seeded `shared_tools/` skills without error.
+
+## 2026-10-28 (fix: skill folder names must match the function name — plus `claude mcp add` docs)
+
+- The `shared_tools/` seed had two folders named after the *example*
+  (`echo_tool/`, `setup_files_tool/`) instead of the actual function
+  inside (`echo`, `make_setup_files`) — `load_entrypoint()` builds the
+  module path from the skill's own name, not an arbitrary label, so
+  both failed to load (`FileNotFoundError`, silently skipped by
+  `sync_tools()`'s try/except). Found by actually driving a fresh
+  clone with a real MCP stdio client end to end, not just unit tests.
+  Renamed both folders; re-verified the same way — all four skills now
+  load and `echo` round-trips correctly through a real session.
+- Documented the exact `claude mcp add` invocation for the zero-install
+  path in README.md, tested with a clean `$HOME` (no pre-existing
+  clone) end to end via a simulated stdio client.
+
+## 2026-10-28 (shared_dir pushes now ship a self-sufficient run.sh too)
+
+- User pointed the real admin UI's `shared_dir` at this repo's
+  `shared_tools/` (per the previous entry's suggested setup) and
+  nothing useful appeared — correctly diagnosed why: a pushed
+  `shared_dir` repo only ever contains skill *data*
+  (`tools/`/`groups.json`), never the `jupyter_mcp_tools` package/
+  server code, which only lives in this source repo. The earlier
+  "already general-purpose, just point shared_dir here" suggestion
+  was wrong on its own.
+- Real fix, per explicit request ("1) проверить есть ли в этой папке
+  необходимые файлы... 2) если нет добавить 3) запушить с ними"):
+  `push_shared_dir()` in `common/git_push.py` now calls new
+  `_ensure_run_script()`/`_ensure_gitignore()` right before `git add
+  -A` on every push — writing (or leaving alone, if unchanged) a
+  `run.sh` + `.gitignore` at the shared directory's own root. This
+  makes **any** git-push-configured shared_dir self-sufficient: a bare
+  `git clone` of it, followed by `./run.sh`, installs the
+  `jupyter_mcp_tools` package from `DEFAULT_PACKAGE_REPO_URL` (override
+  with `JUPYTER_MCP_TOOLS_PACKAGE_REPO_URL`) into a local venv and runs
+  the server with `--shared-dir` pointing at itself — no need to clone
+  this *source* repo at all, since the shared_dir repo now carries
+  everything needed to bootstrap itself.
+- `run.sh` is fully machine-managed (regenerated from the current
+  template whenever its content differs — never meant to be
+  hand-edited).
+- Tests: `test_push_shared_dir_writes_run_script_and_gitignore` in
+  `test_git_push.py` (content/executable bit/.gitignore line, plus
+  confirms a second push with no new skill changes produces no extra
+  empty commit). Full suite: 187/187 passing. Verified live end to
+  end outside the test suite: pushed a real skill into a fresh local
+  bare+clone repo pair, confirmed `run.sh` landed in the same commit,
+  then did a completely separate `git clone` of the bare repo and ran
+  its committed `run.sh` directly — served the pushed skill over a
+  real MCP stdio session with zero manual setup.
