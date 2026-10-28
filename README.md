@@ -259,6 +259,13 @@ for this Python project:
 }
 ```
 
+Or register it the same way with Claude Code's own CLI (`claude mcp
+add`), which takes the same command + args directly:
+
+```bash
+claude mcp add jupyter-mcp-tools -- bash -c 'd="$HOME/.cache/jupyter-mcp-tools-src"; [ -d "$d/.git" ] || git clone -q https://github.com/YakubovSlava/vyy_mcp.git "$d"; exec bash "$d/scripts/run_from_git.sh"'
+```
+
 Every time the client launches this, the script: clones the repo (or
 `git pull`s it if already cloned), creates a venv inside that cache
 directory and `pip install -e`s the project into it (first run only —
