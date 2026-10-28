@@ -6,7 +6,15 @@ from jupyter_mcp_tools.jupyter_ext import _FakeUserPrefixRedirectHandler
 
 class TestFakeUserPrefixRedirect(AsyncHTTPTestCase):
     def get_app(self):
-        return Application([(r"/user/([^/]+)/proxy/(.*)", _FakeUserPrefixRedirectHandler)])
+        # `xsrf_cookies=True` matches jupyter_server's own ServerApp,
+        # which always turns this on regardless of auth settings -- the
+        # earlier version of this test suite ran against the Tornado
+        # default (False) and so never actually exercised the 403 that
+        # broke every POST/PUT/DELETE/PATCH test below on a real Jupyter
+        # server, even after the 405 fix.
+        return Application(
+            [(r"/user/([^/]+)/proxy/(.*)", _FakeUserPrefixRedirectHandler)], xsrf_cookies=True
+        )
 
     def test_get_redirects_to_real_proxy_path(self):
         response = self.fetch("/user/alice/proxy/8766/config", follow_redirects=False)

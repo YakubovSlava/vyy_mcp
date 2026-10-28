@@ -917,6 +917,28 @@ available to every user of the server — without restarting anything.
     project's first test of `jupyter_ext.py`): one GET, one POST, and a
     loop over PUT/DELETE/PATCH, all asserting the right status (307, or
     302 for GET) and the correctly rewritten `Location`.
+  - **Second bug in the same handler, found by actually reproducing the
+    full proxy chain locally** (a real `jupyter-server` process with
+    `jupyter_server_proxy` + `jupyter_mcp_tools.jupyter_ext` both
+    enabled, proxying to a real running admin UI — set up specifically
+    because guessing blind across two separate machines on the first
+    bug had been slow and error-prone): the 307 fix alone still 403'd on
+    an actual Jupyter server, because `ServerApp` unconditionally turns
+    on Tornado's `xsrf_cookies` setting, and plain `tornado.web.
+    RequestHandler.check_xsrf_cookie()` (what our handler extends,
+    unlike jupyter_server's own base handler classes, which *do* respect
+    `settings.disable_check_xsrf`) requires a valid XSRF token for every
+    non-GET request. A bare curl POST (or a browser's own form submit
+    through this fake prefix) never has one. Fixed by overriding
+    `check_xsrf_cookie` to a no-op on `_FakeUserPrefixRedirectHandler` —
+    safe specifically because this handler never reads or mutates any
+    state, it only computes a redirect target from the URL path, so
+    there's nothing for XSRF protection to actually protect here.
+    `test_jupyter_ext.py`'s `Application` now sets `xsrf_cookies=True`
+    (matching `ServerApp`'s real default) — without that, the existing
+    POST/PUT/DELETE/PATCH tests exercised none of this and the bug
+    would have slipped through again; with it, every one of them is
+    now also an implicit regression test for the no-op override.
 - **The Skills page row layout became a real grid, with the kind badge
   dropped and the category always shown**, per explicit request
   ("Надпись skill.md зачем... Категорию вставь слева... Должна быть

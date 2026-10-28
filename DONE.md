@@ -1496,3 +1496,36 @@
 - Tests: `test_skill_row_shows_category_left_of_name_without_kind_badge`,
   `test_skill_row_shows_real_category_when_group_set` in
   `test_admin_api.py`. Full suite: 186/186 passing.
+
+## 2026-10-28 (fix: fake user/proxy prefix 403'd on POST — XSRF, not 405)
+
+- Per explicit request ("можешь запустить сервер именно через
+  proxy/user/port? Чтобы мы сейчас не отлавливали баги так сложно"),
+  reproduced the real deployment's exact proxy chain locally instead of
+  diagnosing a second machine's bug report blind: a real
+  `jupyter-server` process with `jupyter_server_proxy` +
+  `jupyter_mcp_tools.jupyter_ext` both enabled (config + logs under
+  `/tmp/.../jupyter_proxy_test`), proxying to the real running admin
+  UI on 8766. Confirmed the previous 307 fix alone still wasn't enough:
+  a bare POST through `/user/<name>/proxy/8766/...` now 403'd instead
+  of 405ing.
+- Root cause: `ServerApp` always sets Tornado's `xsrf_cookies` setting,
+  and plain `tornado.web.RequestHandler.check_xsrf_cookie()` (what
+  `_FakeUserPrefixRedirectHandler` extends — jupyter_server's own base
+  handlers respect `settings.disable_check_xsrf` instead, but ours
+  doesn't inherit from those) requires a valid XSRF token for every
+  non-GET request. Neither a bare `curl -X POST` nor a real browser
+  form submit through this fake prefix ever has one. Fixed by
+  overriding `check_xsrf_cookie` to a no-op — safe because this
+  handler only computes a redirect target from the URL, it never reads
+  or mutates any state.
+- `test_jupyter_ext.py`'s `Application` now sets `xsrf_cookies=True`
+  (matching `ServerApp`'s real default) instead of Tornado's bare
+  default (`False`) — without this, the existing POST/PUT/DELETE/PATCH
+  tests never actually exercised the 403 path and this bug could have
+  slipped through a second time. Full suite: 186/186 passing. Verified
+  the complete chain end to end against the real admin UI (POST →
+  307 → the real route's 303 to `/login`; GET `/download` → 302 → 303
+  to `/login`). Left the `jupyter-server` instance running (not a
+  one-off) specifically so this proxy chain stays available for future
+  bug hunts without needing a second machine to reproduce against.

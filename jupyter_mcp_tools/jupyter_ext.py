@@ -38,6 +38,15 @@ class _FakeUserPrefixRedirectHandler(RequestHandler):
     the body.
     """
 
+    def check_xsrf_cookie(self) -> None:
+        """No-op: this handler never reads or changes any state — it
+        only computes a redirect target from the URL path — so an XSRF
+        token has nothing to protect here. Tornado's `xsrf_cookies`
+        setting (which `ServerApp` always turns on) otherwise requires
+        one for every non-GET request, which a plain `curl -X POST`/form
+        submit through this fake prefix would never have, surfacing as a
+        403 for every verb added above."""
+
     def _redirect(self, rest: str) -> None:
         target = f"/proxy/{rest}"
         if self.request.query:
