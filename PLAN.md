@@ -1183,7 +1183,8 @@ available to every user of the server — without restarting anything.
       ... (any other supporting files/folders)
   groups.json               # group store, written by the "Группы" tab only
   launcher/                 # regenerated on every push (common/launcher_bundle.py)
-    requirements.txt
+    jupyter_mcp_tools/      # this package's sources, copied in (mirrored)
+    requirements.txt        # third-party deps only; nothing self-referential
     src/main.py
     README.md
   ...                       # everything else is admin-owned, managed on the

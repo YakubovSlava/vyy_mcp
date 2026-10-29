@@ -749,8 +749,9 @@ push` runs in that directory after every **install**, **delete**, and
 
   ```
   launcher/
-    requirements.txt   third-party deps + `jupyter-mcp-tools @ git+...`
-    src/main.py        starts the MCP server (stdio) against the repo root
+    jupyter_mcp_tools/   this package's own sources, copied in
+    requirements.txt     third-party deps only
+    src/main.py          starts the MCP server (stdio) against the repo root
     README.md
   ```
 
@@ -759,13 +760,20 @@ push` runs in that directory after every **install**, **delete**, and
   python launcher/src/main.py
   ```
 
-  `requirements.txt` deliberately references the package **from git
-  rather than vendoring it**: a copied snapshot is exactly what goes stale,
-  and the point of this folder is that a clone always runs current logic.
-  The dependency list is read from the installed distribution's metadata,
-  so it can't drift from what the server actually needs. Set
-  `JUPYTER_MCP_TOOLS_PACKAGE_REPO_URL` on the admin-UI process to point it
-  at a fork.
+  **Nothing of this project is downloaded at run time.** The package's
+  sources are copied into `launcher/jupyter_mcp_tools/`, and `main.py` puts
+  that directory first on `sys.path`, so the vendored copy is what gets
+  imported — no git remote is contacted for our code. The copy is
+  *mirrored* rather than merely added to: a module deleted upstream is
+  removed here too, otherwise a stale file would stay importable and the
+  launcher would run code that no longer exists in the source of truth.
+
+  Only third-party dependencies (`mcp`, `fastapi`, `uvicorn`, ...) come
+  from PyPI, or whatever index you configure. Vendoring those as well was
+  considered and declined: it means ~93 MB of platform-specific wheels in
+  git, and compiled ones (`uvloop`, `httptools`) won't install on a
+  different OS anyway. The dependency list is read from the installed
+  distribution's metadata, so it can't drift from what the server needs.
 
   Everything else at the repo root is an ordinary file managed from the
   **Файлы** tab — upload a zip (unpacked as-is, binaries included), create

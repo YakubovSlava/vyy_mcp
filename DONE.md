@@ -2014,3 +2014,39 @@
   ready-to-serve set), and `jupyter_ext.py` being enabled by dotted module
   path instead of an entry point (documented as standalone-JupyterLab-only).
   Full suite still 297/297.
+
+## 2026-10-29 (launcher is self-sufficient: our sources are copied in, not fetched)
+
+- Per explicit request ("не хочу чтобы что-то из сети подкачивалось, все
+  исходники должны быть самодостаточны"): **reversed the decision made
+  earlier the same day.** `launcher/requirements.txt` no longer contains
+  `jupyter-mcp-tools @ git+...`; the package's own sources are copied into
+  `launcher/jupyter_mcp_tools/` on every push instead, and `launcher/src/
+  main.py` inserts that directory at `sys.path[0]` before importing, so the
+  vendored copy is what runs. Nothing of ours touches a git remote at run
+  time.
+- Scope confirmed with the user rather than assumed: **our sources only**.
+  Third-party dependencies (`mcp`, `fastapi`, `uvicorn`, ...) still install
+  from PyPI/index — measured before deciding: ~93 MB across 152 packages,
+  and the compiled ones (`uvloop`, `httptools`) are platform-specific, so
+  shipping them in git would bloat the repo and still fail on another OS.
+  A `wheelhouse/` generator was offered as the middle option and not taken.
+- The copy is **mirrored, not merely written**: files are compared by bytes
+  and written only when different (so an unchanged package produces no diff
+  and no commit), and files that no longer exist upstream are deleted from
+  the copy. Without the deletion a removed module would stay importable and
+  the launcher would run code that no longer exists in the source of truth.
+  Tests and `__pycache__` are excluded — 35 files, 237 KB.
+- Tested the reversal, not just the new happy path: a test asserts no
+  environment variable can reintroduce a network fetch of our own code
+  (`JUPYTER_MCP_TOOLS_PACKAGE_REPO_URL` is gone and setting it changes
+  nothing), and another asserts a deleted module disappears from the copy.
+  `package_source_root()` now works for a plain (non-editable) install too,
+  since `__file__` points at a real directory in that case as well.
+- Verified end to end: a real push produced 40 files including 35 vendored
+  package sources and no `git+` anywhere; a **fresh clone** of that repo ran
+  `python launcher/src/main.py` with a stripped `PATH`, completed a real MCP
+  handshake, listed the skill and executed it. Also confirmed directly that
+  `import jupyter_mcp_tools` under `PYTHONPATH=launcher` resolves to
+  `<repo>/launcher/jupyter_mcp_tools/__init__.py`, not to the installed
+  package. Full suite: 300/300.
