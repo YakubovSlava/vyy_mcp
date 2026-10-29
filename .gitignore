@@ -5,3 +5,7 @@ __pycache__/
 .pytest_cache/
 .ipynb_checkpoints/
 *.zip
+# Written by jupyter_mcp_tools.launcher into the checkout on every start --
+# local install state, must never be pushed back to the shared repo.
+.install-stamp
+.launcher.lock

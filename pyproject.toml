@@ -12,6 +12,8 @@ dependencies = { file = ["requirements.txt"] }
 [project.scripts]
 jupyter-mcp-tools-server = "jupyter_mcp_tools.mcp_server.server:main"
 jupyter-mcp-tools-admin-users = "jupyter_mcp_tools.admin_ui.manage_admins:main"
+jupyter-mcp-tools-setup = "jupyter_mcp_tools.bootstrap:main"
+jupyter-mcp-tools-launch = "jupyter_mcp_tools.launcher:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
