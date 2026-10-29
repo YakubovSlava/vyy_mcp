@@ -4,7 +4,6 @@ import sys
 import pytest
 
 from jupyter_mcp_tools.common.git_push import (
-    _render_run_script,
     _run_under_pty_answering_credentials,
     push_shared_dir,
 )
@@ -48,64 +47,6 @@ def test_push_shared_dir_happy_path(tmp_path):
         ["git", "log", "--oneline", "-1"], cwd=bare, capture_output=True, text=True, check=True
     ).stdout
     assert "Add skill" in log
-
-
-def test_push_shared_dir_writes_run_script_and_gitignore(tmp_path):
-    bare, clone = _init_repo_with_remote(tmp_path)
-    (clone / "tools").mkdir()
-    (clone / "tools" / "new_skill.py").write_text("def f():\n    pass\n")
-
-    error = push_shared_dir(clone, username="x", password="y", commit_message="Add skill 'new_skill'")
-    assert error is None
-
-    run_script = clone / "run.sh"
-    assert run_script.read_text(encoding="utf-8") == _render_run_script()
-    # Executable, so a clone of this repo can run it directly.
-    assert run_script.stat().st_mode & 0o111
-    assert ".run-venv/" in (clone / ".gitignore").read_text(encoding="utf-8").splitlines()
-
-    log = subprocess.run(
-        ["git", "log", "--oneline", "-1"], cwd=bare, capture_output=True, text=True, check=True
-    ).stdout
-    assert "Add skill" in log
-
-    # A second push with no further skill changes has nothing new to
-    # commit, since run.sh/.gitignore are unchanged -- this is the real
-    # "nothing to commit" case (see the test above, which only checks
-    # for "no error", not "no commit", since run.sh/.gitignore are
-    # genuinely new on that first call).
-    error = push_shared_dir(clone, username="x", password="y", commit_message="no-op")
-    assert error is None
-    log_count = subprocess.run(
-        ["git", "log", "--oneline"], cwd=bare, capture_output=True, text=True, check=True
-    ).stdout
-    assert len(log_count.strip().splitlines()) == 2  # init + the one real commit, no extra no-op commit
-
-
-def test_push_shared_dir_vendors_the_package_for_self_sufficiency(tmp_path):
-    bare, clone = _init_repo_with_remote(tmp_path)
-    (clone / "tools").mkdir()
-    (clone / "tools" / "new_skill.py").write_text("def f():\n    pass\n")
-
-    error = push_shared_dir(clone, username="x", password="y", commit_message="Add skill 'new_skill'")
-    assert error is None
-
-    vendor_dir = clone / "_vendor"
-    assert (vendor_dir / "jupyter_mcp_tools" / "common" / "git_push.py").is_file()
-    assert (vendor_dir / "jupyter_mcp_tools" / "mcp_server" / "server.py").is_file()
-    assert (vendor_dir / "pyproject.toml").is_file()
-    assert (vendor_dir / "requirements.txt").is_file()
-    # No build caches from this process's own imports leaked into the
-    # committed copy.
-    assert not any(vendor_dir.rglob("__pycache__"))
-
-    # run.sh must prefer the vendored copy over the git+https fallback.
-    assert 'install -q -e "$VENDOR_DIR"' in (clone / "run.sh").read_text(encoding="utf-8")
-
-    log = subprocess.run(
-        ["git", "show", "--stat", "HEAD"], cwd=bare, capture_output=True, text=True, check=True
-    ).stdout
-    assert "_vendor/jupyter_mcp_tools" in log
 
 
 def test_push_shared_dir_nothing_to_commit_is_not_an_error(tmp_path):

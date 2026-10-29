@@ -169,11 +169,6 @@ def test_child_relay_cannot_reset_instructions(child_client):
     assert r.status_code == 403
 
 
-def test_child_relay_cannot_push_vendor_now(child_client):
-    r = child_client.post("/config/vendor/push")
-    assert r.status_code == 403
-
-
 def test_child_relay_has_no_users_page(child_client):
     # A child relay has no local users of its own to show — the "Users"
     # tab only exists on the main host.

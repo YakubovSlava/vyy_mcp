@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+
+{% block title_suffix %} — Файлы{% endblock %}
+
+{% block header_actions %}
+{% if not read_only %}
+<button type="button" class="icon-btn" title="Загрузить архив с файлами" onclick="uploadFilesDialog.showModal()">Загрузить архив</button>
+<button type="button" class="icon-btn" title="Создать файл вручную" onclick="openNewFile()">Новый файл</button>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if read_only %}
+<div class="banner err" style="margin-bottom:1.25rem;">Только просмотр: эта админка запущена с <code>MCP_TOOLS_READ_ONLY=1</code> — загрузка, редактирование и удаление файлов отключены.</div>
+{% endif %}
+<p class="section-title">Файлы репозитория</p>
+<p style="color:var(--muted);font-size:0.85rem;margin:-0.5rem 0 1rem;">
+  Всё, что лежит в репозитории навыков кроме папки <code>tools/</code>. Загружается архивом (распаковывается как есть, любые файлы, включая бинарные), редактируется и удаляется здесь же — каждый изменение коммитится и пушится, если git push настроен. <code>tools/</code> намеренно недоступна: навыки правятся на вкладке «Навыки», иначе реестр разъедется с диском.
+</p>
+<div class="card">
+  {% if files %}
+  <table class="files-table">
+    <thead>
+      <tr><th>Путь</th><th>Размер</th><th></th></tr>
+    </thead>
+    <tbody>
+    {% for f in files %}
+      <tr>
+        <td class="file-path{{ ' is-dir' if f.is_dir else '' }}">
+          {% if f.is_dir %}{{ f.path }}/{% else %}{{ f.path }}{% endif %}
+        </td>
+        <td class="file-size">{{ '' if f.is_dir else (f.size | filesize) }}</td>
+        <td class="file-actions">
+          {% if not f.is_dir %}
+          <a class="edit-btn" href="files/download?path={{ f.path | urlencode }}">Скачать</a>
+          {% endif %}
+          {% if not read_only %}
+          {% if f.editable %}
+          <button type="button" class="edit-btn" data-path="{{ f.path }}" onclick="openEditFile(this)">Редактировать</button>
+          {% endif %}
+          <form method="post" action="files/delete" onsubmit="return confirm('Удалить {{ f.path }}?');">
+            <input type="hidden" name="path" value="{{ f.path }}" />
+            <button type="submit" class="remove-btn">Удалить</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty-state">
+      <div class="glyph">＋</div>
+      <div>В репозитории пока нет файлов кроме навыков.</div>
+      {% if not read_only %}
+      <button type="button" class="cta" onclick="uploadFilesDialog.showModal()">Загрузить архив</button>
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block dialogs %}
+<script>
+  function openNewFile() {
+    document.getElementById("fileDialogTitle").textContent = "Новый файл";
+    document.getElementById("filePathInput").readOnly = false;
+    document.getElementById("filePathInput").value = "";
+    document.getElementById("fileContentInput").value = "";
+    fileDialog.showModal();
+  }
+
+  // Existing files are edited by path (their content is fetched through the
+  // same dialog form) — the path field is locked so "Редактировать" can't
+  // silently turn into "save a copy under a new name".
+  async function openEditFile(btn) {
+    const path = btn.dataset.path;
+    document.getElementById("fileDialogTitle").textContent = "Файл: " + path;
+    const pathInput = document.getElementById("filePathInput");
+    pathInput.value = path;
+    pathInput.readOnly = true;
+    document.getElementById("fileContentInput").value = "Загрузка…";
+    fileDialog.showModal();
+    const response = await fetch("files/raw?path=" + encodeURIComponent(path), { credentials: "same-origin" });
+    document.getElementById("fileContentInput").value = response.ok
+      ? await response.text()
+      : "Не удалось прочитать файл: " + response.status;
+  }
+</script>
+<dialog id="uploadFilesDialog" class="wide">
+  <form method="post" action="files/upload" enctype="multipart/form-data" class="dialog-body">
+    <h3>Загрузить архив</h3>
+    <p>Zip распаковывается в корень репозитория как есть. Если все файлы лежат в одной общей папке, она убирается — как при загрузке навыка.</p>
+    <label>
+      Архив (.zip)
+      <input type="file" name="archive" accept=".zip" required />
+    </label>
+    <label class="check">
+      <input type="checkbox" name="overwrite" value="1" />
+      Перезаписывать существующие файлы
+    </label>
+    <div class="dialog-actions">
+      <button type="button" class="btn ghost" onclick="uploadFilesDialog.close()">Отмена</button>
+      <button type="submit" class="btn primary">Загрузить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="fileDialog" class="wide">
+  <form method="post" action="files/save" class="dialog-body" id="fileForm">
+    <h3 id="fileDialogTitle">Файл</h3>
+    <label>
+      Путь относительно корня репозитория
+      <input type="text" name="path" id="filePathInput" placeholder="scripts/run.sh" required />
+    </label>
+    <label>
+      Содержимое
+      <textarea name="content" id="fileContentInput" rows="18" spellcheck="false"></textarea>
+    </label>
+    <div class="dialog-actions">
+      <button type="button" class="btn ghost" onclick="fileDialog.close()">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить и запушить</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}

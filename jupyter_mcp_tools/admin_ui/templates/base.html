@@ -341,6 +341,23 @@
 
     code { background: #F1F2F5; padding: 0 0.3rem; border-radius: 4px; font-size: 0.85em; }
 
+    /* Files page (templates/files.html) -- a real table rather than the
+       flex .skill-row rows, since paths are long and need to wrap while
+       the action buttons stay on one line. */
+    .files-table { width: 100%; border-collapse: collapse; font-size: 0.87rem; }
+    .files-table th {
+      text-align: left; font-weight: 500; font-size: 0.78rem; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em;
+      padding: 0.5rem 1.25rem; border-bottom: 1px solid var(--border);
+    }
+    .files-table td { padding: 0.6rem 1.25rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .files-table tr:last-child td { border-bottom: none; }
+    .file-path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+    .file-path.is-dir { color: var(--muted); font-weight: 600; }
+    .file-size { color: var(--muted); white-space: nowrap; width: 1%; }
+    .file-actions { display: flex; gap: 0.5rem; justify-content: flex-end; align-items: center; white-space: nowrap; }
+    .file-actions form { display: inline; }
+
     .doc { padding: 0.5rem 0 1rem; }
     .doc h2 { font-size: 1.05rem; margin: 2rem 0 0.6rem; }
     .doc h2:first-child { margin-top: 0; }
@@ -370,6 +387,7 @@
         <a href="." class="{{ 'active' if active_page == 'skills' else '' }}">Навыки</a>
         <a href="groups" class="{{ 'active' if active_page == 'groups' else '' }}">Группы</a>
         {% if not remote %}
+        <a href="files" class="{{ 'active' if active_page == 'files' else '' }}">Файлы</a>
         <a href="users" class="{{ 'active' if active_page == 'users' else '' }}">Пользователи</a>
         <a href="docs" class="{{ 'active' if active_page == 'docs' else '' }}">Документация</a>
         {% endif %}

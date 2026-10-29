@@ -33,12 +33,13 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from starlette.background import BackgroundTask
 from ..common import auth, curl_client, git_push, registry, session, users
 from ..common import groups as group_store
+from ..common import repo_files
 from ..common.config import AppConfig, load_config, save_config
 from ..common.manifest import ToolValidationError
 from ..common.registry import ToolAlreadyExistsError, ToolNotFoundError
@@ -77,6 +78,19 @@ app = FastAPI(
     redirect_slashes=False,
 )
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+
+def _filesize(value: int) -> str:
+    """Bytes to a short human string for the Files page."""
+    size = float(value or 0)
+    for unit in ("Б", "КБ", "МБ", "ГБ"):
+        if size < 1024 or unit == "ГБ":
+            return f"{size:.0f} {unit}" if unit == "Б" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} ГБ"
+
+
+templates.env.filters["filesize"] = _filesize
 
 
 class StripTrailingSlashMiddleware:
@@ -341,6 +355,39 @@ def _render_docs(request: Request):
     )
 
 
+def _render_files(request: Request, **extra):
+    """Renders the Files page (templates/files.html).
+
+    Main host only: a child relay has no local shared directory of its own
+    to list files from, same reasoning as Users/Docs.
+    """
+    config = load_config()
+    shared_dir = config.shared_dir_path
+    shared_dir.mkdir(parents=True, exist_ok=True)
+    return templates.TemplateResponse(
+        request,
+        "files.html",
+        {
+            "remote": bool(MAIN_HOST),
+            "read_only": READ_ONLY,
+            "active_page": "files",
+            "shared_dir": str(shared_dir),
+            "files": repo_files.list_files(shared_dir),
+            "message": extra.get("message"),
+            "error": extra.get("error"),
+        },
+    )
+
+
+def _redirect_to_files(request: Request, *, message: str | None = None, error: str | None = None):
+    target = _relative_redirect(request, "files")
+    params = {k: v for k, v in (("message", message), ("error", error)) if v}
+    if params:
+        separator = "&" if "?" in target else "?"
+        target = f"{target}{separator}{urlencode(params)}"
+    return RedirectResponse(target, status_code=303)
+
+
 def _render_groups(request: Request, **extra):
     """Renders the Groups page (templates/groups.html). Works on both the
     main host and a child relay — unlike Users/Docs, groups are shared
@@ -564,28 +611,128 @@ def reset_instructions(request: Request, _admin: str | None = Depends(require_ad
     return _redirect_to_root(request, message="Системная инструкция сброшена к стандартной.")
 
 
-@app.post("/config/vendor/push")
-def push_vendor_now(request: Request, _admin: str | None = Depends(require_admin_page)):
-    """Manually git-pushes `shared_dir` right now, with no skill change
-    involved — `run.sh`/`_vendor/` only normally get refreshed as a side
-    effect of some skill mutation (install/delete/edit, or a group
-    create/delete) triggering `_maybe_git_push`; this exists so an admin
-    who just edited this project's own source code doesn't have to
-    touch an unrelated skill just to get that change vendored."""
+@app.get("/files", response_class=HTMLResponse)
+def files_page(
+    request: Request,
+    message: str | None = None,
+    error: str | None = None,
+    _admin: str | None = Depends(require_admin_page),
+):
     if MAIN_HOST:
-        raise HTTPException(status_code=403, detail="Git push is managed on the main host only.")
+        raise HTTPException(status_code=404, detail="Not found")
+    return _render_files(request, message=message, error=error)
+
+
+@app.post("/files/upload")
+async def upload_files(
+    request: Request,
+    archive: UploadFile = File(...),
+    overwrite: str | None = Form(None),
+    _admin: str | None = Depends(require_admin_page),
+):
+    """Unpacks an uploaded zip into the repo root as ordinary files."""
+    if MAIN_HOST:
+        raise HTTPException(status_code=403, detail="Managed on the main host only.")
     if READ_ONLY:
-        return _redirect_to_root(request, error=READ_ONLY_MESSAGE)
+        return _redirect_to_files(request, error=READ_ONLY_MESSAGE)
 
-    config = load_config()
-    shared_dir = config.shared_dir_path
-    if not (config.git_push_username and config.git_push_password):
-        return _redirect_to_root(request, error="Git push не настроен — укажите логин и пароль выше.")
+    shared_dir = load_config().shared_dir_path
+    with tempfile.TemporaryDirectory() as tmp:
+        archive_path = Path(tmp) / "upload.zip"
+        archive_path.write_bytes(await archive.read())
+        try:
+            written = repo_files.install_archive(
+                shared_dir, archive_path, overwrite=bool(overwrite)
+            )
+        except repo_files.FileValidationError as exc:
+            return _redirect_to_files(request, error=str(exc))
 
-    push_error = _maybe_git_push(config, shared_dir, "Refresh run.sh/_vendor")
+    push_error = _maybe_git_push(load_config(), shared_dir, f"Upload files ({len(written)})")
+    message = f"Загружено файлов: {len(written)}."
     if push_error:
-        return _redirect_to_root(request, error=f"git push не выполнен: {push_error}")
-    return _redirect_to_root(request, message="Запушено: run.sh и _vendor обновлены в репозитории навыков.")
+        return _redirect_to_files(request, error=f"{message} Внимание: git push не выполнен ({push_error}).")
+    return _redirect_to_files(request, message=message)
+
+
+@app.post("/files/save")
+def save_file(
+    request: Request,
+    path: str = Form(...),
+    content: str = Form(""),
+    _admin: str | None = Depends(require_admin_page),
+):
+    if MAIN_HOST:
+        raise HTTPException(status_code=403, detail="Managed on the main host only.")
+    if READ_ONLY:
+        return _redirect_to_files(request, error=READ_ONLY_MESSAGE)
+
+    shared_dir = load_config().shared_dir_path
+    try:
+        repo_files.write_file(shared_dir, path, content)
+    except repo_files.FileValidationError as exc:
+        return _redirect_to_files(request, error=str(exc))
+
+    push_error = _maybe_git_push(load_config(), shared_dir, f"Edit file '{path}'")
+    message = f"Файл «{path}» сохранён."
+    if push_error:
+        return _redirect_to_files(request, error=f"{message} Внимание: git push не выполнен ({push_error}).")
+    return _redirect_to_files(request, message=message)
+
+
+@app.post("/files/delete")
+def delete_file(
+    request: Request,
+    path: str = Form(...),
+    _admin: str | None = Depends(require_admin_page),
+):
+    if MAIN_HOST:
+        raise HTTPException(status_code=403, detail="Managed on the main host only.")
+    if READ_ONLY:
+        return _redirect_to_files(request, error=READ_ONLY_MESSAGE)
+
+    shared_dir = load_config().shared_dir_path
+    try:
+        repo_files.delete_path(shared_dir, path)
+    except repo_files.FileValidationError as exc:
+        return _redirect_to_files(request, error=str(exc))
+
+    push_error = _maybe_git_push(load_config(), shared_dir, f"Delete file '{path}'")
+    message = f"Файл «{path}» удалён."
+    if push_error:
+        return _redirect_to_files(request, error=f"{message} Внимание: git push не выполнен ({push_error}).")
+    return _redirect_to_files(request, message=message)
+
+
+@app.get("/files/raw")
+def raw_file(
+    path: str,
+    _admin: str | None = Depends(require_admin_page),
+):
+    """Plain-text contents for the editor dialog (no download headers)."""
+    if MAIN_HOST:
+        raise HTTPException(status_code=404, detail="Not found")
+    shared_dir = load_config().shared_dir_path
+    try:
+        return PlainTextResponse(repo_files.read_file(shared_dir, path))
+    except repo_files.FileValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/files/download")
+def download_file(
+    path: str,
+    _admin: str | None = Depends(require_admin_page),
+):
+    """Serves a single file back, including binaries — the page lists them
+    but can't edit them, so there has to be some way to get them out."""
+    if MAIN_HOST:
+        raise HTTPException(status_code=404, detail="Not found")
+    shared_dir = load_config().shared_dir_path
+    try:
+        target = repo_files.read_file_path(shared_dir, path)
+    except repo_files.FileValidationError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileResponse(target, filename=target.name)
 
 
 @app.post("/api/users/register")
