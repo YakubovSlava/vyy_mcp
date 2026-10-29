@@ -61,6 +61,7 @@ def _zip(tmp_path, entries: dict[str, bytes], name="up.zip", dirs=()):
         "tools/echo/tool.py",
         "tools",
         ".git/config",
+        "groups.json",
     ],
 )
 def test_dangerous_or_reserved_paths_are_refused(repo, bad):
@@ -68,6 +69,23 @@ def test_dangerous_or_reserved_paths_are_refused(repo, bad):
         write_file(repo, bad, "x")
     with pytest.raises(FileValidationError):
         read_file(repo, bad)
+
+
+def test_groups_json_is_not_editable_here(repo):
+    """`groups.json` is written by the admin UI's own Группы tab. Offering a
+    second editor for it would mean two writers for one file, with the UI's
+    view going stale between them."""
+    (repo / "groups.json").write_text('{}')
+    with pytest.raises(FileValidationError, match="служебный файл"):
+        write_file(repo, "groups.json", '{"x": {}}')
+    with pytest.raises(FileValidationError):
+        read_file(repo, "groups.json")
+
+
+def test_groups_json_is_not_listed(repo):
+    (repo / "groups.json").write_text('{}')
+    paths = {f.path for f in list_files(repo)}
+    assert "groups.json" not in paths
 
 
 def test_uppercase_reserved_name_is_refused(repo):

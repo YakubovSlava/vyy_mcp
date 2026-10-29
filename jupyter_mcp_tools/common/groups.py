@@ -22,10 +22,13 @@ as its own tool, same as having no group at all (see `sync_tools()`).
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from .manifest import NAME_RE, ToolValidationError
+
+logger = logging.getLogger("jupyter_mcp_tools.groups")
 
 
 def groups_path(shared_dir: Path) -> Path:
@@ -39,12 +42,27 @@ class Group:
 
 
 def _load(path: Path) -> dict[str, dict]:
+    """Read the group store, tolerating a damaged file.
+
+    This runs inside the MCP server's 5-second sync loop, so anything that
+    raises here doesn't just fail one page render — it stops every tool
+    from being registered, and the whole server goes dark. A hand-edited or
+    truncated `groups.json` therefore degrades to "no groups" (every skill
+    registers standalone, exactly as if no group existed) instead of taking
+    the server down. Writes still go through `_save`, so the admin UI's own
+    edits are unaffected.
+    """
     if not path.exists():
         return {}
     try:
-        return json.loads(path.read_text())
-    except json.JSONDecodeError:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        logger.warning("group store at %s is unreadable -- treating as empty", path)
         return {}
+    if not isinstance(data, dict):
+        logger.warning("group store at %s is not a JSON object -- treating as empty", path)
+        return {}
+    return {name: entry for name, entry in data.items() if isinstance(entry, dict)}
 
 
 def _save(path: Path, data: dict[str, dict]) -> None:

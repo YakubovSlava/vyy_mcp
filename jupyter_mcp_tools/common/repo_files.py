@@ -39,10 +39,16 @@ from pathlib import Path
 # The registry's directory. Untouchable through this module.
 PROTECTED_DIR_NAME = "tools"
 
+# App-owned files at the repo root. Both are read and written by the admin
+# UI itself (groups on the "Группы" tab), so letting the generic editor
+# touch them means two writers for one file, with the UI's own in-memory
+# view of it going stale in between.
+GROUPS_FILE_NAME = "groups.json"
+
 # .git must never be written to or read from through the UI: writing there
 # is how you rewrite a repo's history/remotes, and reading it exposes
 # credentials embedded in config files.
-RESERVED_NAMES = frozenset({".git", PROTECTED_DIR_NAME})
+RESERVED_NAMES = frozenset({".git", PROTECTED_DIR_NAME, GROUPS_FILE_NAME})
 
 # Extensions that are still "text you might want to edit" but are not
 # UTF-8 decodable in the naive sense. Kept small on purpose — the check is
@@ -85,6 +91,10 @@ def _resolve(root: Path, relative: str, *, must_exist: bool = False) -> Path:
     # Case-insensitive filesystems: compare the first segment the way the
     # filesystem would, so ".GIT" can't slip past on macOS/Windows.
     if parts[0] in RESERVED_NAMES or parts[0].lower() in {n.lower() for n in RESERVED_NAMES}:
+        if parts[0] == GROUPS_FILE_NAME:
+            raise FileValidationError(
+                f"«{parts[0]}» — служебный файл, менять его через эту страницу нельзя"
+            )
         raise FileValidationError(
             f"«{parts[0]}» — служебная папка, менять её через эту страницу нельзя"
         )
@@ -160,6 +170,11 @@ def list_files(root: Path) -> list[RepoFile]:
         relative = _relative(root, entry)
         first = relative.split("/", 1)[0]
         if first in (PROTECTED_DIR_NAME, ".git"):
+            continue
+        # App-owned files live at the root and are edited on their own tabs
+        # — listing them here would only offer an editor that the app's own
+        # writer overwrites.
+        if relative in RESERVED_NAMES:
             continue
         # Skips anything reached only through a symlink to outside the
         # root: rglob follows directories, and `..`-style names can't

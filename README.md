@@ -743,13 +743,23 @@ push` runs in that directory after every **install**, **delete**, and
   same way a skill install is, so the repo can hold source files for
   running the server, docs, configs, anything.
 
-  `tools/` is deliberately untouchable from that tab: it's the
-  registry's own directory, and letting a generic file editor write
-  there would let the installed-skills list drift from what is actually
-  on disk. Skills are installed and removed on the **Навыки** tab, where
-  that bookkeeping happens. `.git/` is equally off-limits (writing there
-  means rewriting remotes/history, and reading it exposes any credential
-  embedded in the git config).
+  Three things are untouchable from that tab, each because the app itself
+  owns them:
+
+  - **`tools/`** — the registry's own directory. A generic editor writing
+    there would let the installed-skills list drift from what is on disk.
+    Skills are installed and removed on the **Навыки** tab, where that
+    bookkeeping happens.
+  - **`groups.json`** — the group store, edited on the **Группы** tab. A
+    second editor would mean two writers for one file, with the UI's view
+    going stale in between.
+  - **`.git/`** — writing there rewrites remotes/history, and reading it
+    exposes any credential embedded in the git config.
+
+  (A damaged `groups.json` no longer takes the server down either: the
+  group store degrades to "no groups" — every skill registers standalone —
+  instead of aborting the sync loop, which used to stop *all* tools from
+  being registered.)
 - **`README.md` is just a file now**, edited on the **Файлы** tab like any
   other. The dedicated README textarea (and its text stored in
   `config.json`) was removed when the general file editor arrived: two
