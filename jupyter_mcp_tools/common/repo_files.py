@@ -45,10 +45,17 @@ PROTECTED_DIR_NAME = "tools"
 # view of it going stale in between.
 GROUPS_FILE_NAME = "groups.json"
 
+# Rewritten on every push (see common/launcher_bundle.py) so the repo
+# always ships a runnable entrypoint on current logic. Hand edits would
+# be silently overwritten, so it is not offered for editing.
+LAUNCHER_DIR_NAME = "launcher"
+
 # .git must never be written to or read from through the UI: writing there
 # is how you rewrite a repo's history/remotes, and reading it exposes
 # credentials embedded in config files.
-RESERVED_NAMES = frozenset({".git", PROTECTED_DIR_NAME, GROUPS_FILE_NAME})
+RESERVED_NAMES = frozenset(
+    {".git", PROTECTED_DIR_NAME, GROUPS_FILE_NAME, LAUNCHER_DIR_NAME}
+)
 
 # Extensions that are still "text you might want to edit" but are not
 # UTF-8 decodable in the naive sense. Kept small on purpose — the check is
@@ -64,9 +71,12 @@ class FileValidationError(ValueError):
 @dataclass
 class RepoFile:
     path: str  # repo-relative, forward slashes, no leading "./"
+    name: str  # basename, what the row shows
+    depth: int  # nesting level, for the indented tree
     size: int
     is_dir: bool
     editable: bool  # text and decodable — the UI offers "Редактировать"
+    child_count: int = 0  # files+dirs directly beneath a directory
 
 
 def _resolve(root: Path, relative: str, *, must_exist: bool = False) -> Path:
@@ -156,44 +166,83 @@ def _decodes_as_utf8(path: Path) -> bool:
 
 
 def list_files(root: Path) -> list[RepoFile]:
-    """Everything at the repo root except `tools/` and `.git/`.
+    """Everything at the repo root except the app-owned paths.
 
-    Recursive: a "source tree for running the server" is nested by nature,
-    so a flat listing would be useless. Sorted directories-first then by
-    name, which is how the page renders it.
+    Returned as a **pre-order tree flattened into a list**: each entry knows
+    its `depth`, so the template can render indentation and the browser can
+    collapse a subtree by hiding rows until one at the same or shallower
+    depth appears. That keeps the server side simple (no recursive template
+    macros) and makes collapsing an O(n) client-side pass.
+
+    Directories always precede their own contents, and siblings are sorted
+    case-insensitively with directories first — the usual file-manager
+    order, so a folder's children are never interleaved with its siblings.
     """
     if not root.is_dir():
         return []
 
     found: list[RepoFile] = []
-    for entry in sorted(root.rglob("*")):
-        relative = _relative(root, entry)
-        first = relative.split("/", 1)[0]
-        if first in (PROTECTED_DIR_NAME, ".git"):
-            continue
-        # App-owned files live at the root and are edited on their own tabs
-        # — listing them here would only offer an editor that the app's own
-        # writer overwrites.
-        if relative in RESERVED_NAMES:
-            continue
-        # Skips anything reached only through a symlink to outside the
-        # root: rglob follows directories, and `..`-style names can't
-        # appear here, but a symlinked dir would.
+
+    def walk(directory: Path, depth: int) -> None:
         try:
-            entry.resolve().relative_to(root.resolve())
-        except ValueError:
-            continue
-        if entry.is_symlink():
-            continue
-        found.append(
-            RepoFile(
-                path=relative,
-                size=0 if entry.is_dir() else entry.stat().st_size,
-                is_dir=entry.is_dir(),
-                editable=entry.is_file() and is_text_file(entry),
+            entries = sorted(
+                directory.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())
             )
-        )
-    found.sort(key=lambda f: (not f.is_dir, f.path.lower()))
+        except OSError:
+            return
+        for entry in entries:
+            relative = _relative(root, entry)
+            first = relative.split("/", 1)[0]
+            if first in (PROTECTED_DIR_NAME, ".git"):
+                continue
+            # App-owned files live at the root and are edited on their own
+            # tabs — offering an editor here would only be overwritten by
+            # the app's own writer.
+            if relative in RESERVED_NAMES:
+                continue
+            if entry.is_symlink():
+                continue
+            # Anything reached only through a symlinked directory would
+            # otherwise be listed as if it lived here.
+            try:
+                entry.resolve().relative_to(root.resolve())
+            except ValueError:
+                continue
+
+            if entry.is_dir():
+                try:
+                    child_count = sum(1 for _ in entry.iterdir())
+                except OSError:
+                    child_count = 0
+                found.append(
+                    RepoFile(
+                        path=relative,
+                        name=entry.name,
+                        depth=depth,
+                        size=0,
+                        is_dir=True,
+                        editable=False,
+                        child_count=child_count,
+                    )
+                )
+                walk(entry, depth + 1)
+            else:
+                try:
+                    size = entry.stat().st_size
+                except OSError:
+                    size = 0
+                found.append(
+                    RepoFile(
+                        path=relative,
+                        name=entry.name,
+                        depth=depth,
+                        size=size,
+                        is_dir=False,
+                        editable=is_text_file(entry),
+                    )
+                )
+
+    walk(root, 0)
     return found
 
 

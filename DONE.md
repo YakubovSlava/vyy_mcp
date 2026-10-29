@@ -1939,3 +1939,44 @@
 - Verified against the live shared directory: the Файлы tab lists nothing
   app-owned, and both `groups.json` and `tools` are refused with the right
   wording.
+
+## 2026-10-29 (collapsible file tree; a runnable `launcher/` folder in the child repo)
+
+- Per explicit request, two changes:
+  1. **The Файлы tab is now a collapsible tree** instead of a flat table.
+     Rows carry their own `depth`; collapsing a directory hides every
+     following row deeper than it, so the server renders a flat pre-order
+     list and there are no recursive template macros. Directories show a
+     caret and a child count, and the collapsed set is persisted in
+     `localStorage` **keyed by repository path** — a reload or the
+     post-upload redirect no longer re-expands everything the admin had
+     folded away.
+  2. **A machine-managed `launcher/` folder** is written into the child repo
+     on every push: `requirements.txt`, `src/main.py`, `README.md`. `main`
+     starts the MCP server over stdio with `--shared-dir` pointing at the
+     repo root (via `parents[2]`, so it works from any clone), serving that
+     repo's own `tools/`. Per the user's answer, "untouchable" here means
+     *auto-updated from the current logic*, not frozen.
+- Key decision: **`requirements.txt` references the package from git
+  (`jupyter-mcp-tools @ git+...`) instead of vendoring a copy.** Vendoring
+  is what was removed one commit earlier, and a copied snapshot is exactly
+  what goes stale — the stated requirement was "автоматически забиралась
+  последняя версия". The third-party list is read from the installed
+  distribution's metadata (`importlib.metadata.requires`) rather than
+  hardcoded, so it cannot drift from what the server actually runs with.
+- `launcher_bundle.ensure()` rewrites only files whose content changed, the
+  same rule `run.sh` used to follow: `push_shared_dir` runs on every skill
+  install, and rewriting identical content would manufacture a commit each
+  time (pinned by a test).
+- The folder is app-owned: `repo_files` refuses it (reserved set is now
+  `{tools/, .git/, groups.json, launcher/}`) and the tree doesn't list it,
+  because hand edits would be silently overwritten by the next push.
+- 10 tests in `test_launcher_bundle.py`, including one that actually
+  executes `launcher/src/main.py` as a subprocess (its `--help` proves the
+  entrypoint imports and its argv wiring is valid without leaving a server
+  running) and one asserting determinism of `requirements.txt`.
+- Verified live end to end: a push produced exactly
+  `launcher/{README.md,requirements.txt,src/main.py}` plus the admin's own
+  files; a **fresh clone** of that repo, run with the venv interpreter,
+  completed a real MCP handshake, listed `echo`, and executed it. Full
+  suite: 297/297.

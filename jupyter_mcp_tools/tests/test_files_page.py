@@ -236,14 +236,16 @@ def test_delete_blocked_in_read_only_mode(read_only_client):
 # --------------------------------------------------------------------------
 
 
-def test_a_push_writes_no_run_script_or_vendor_dir(admin_client, repo):
-    """Run scripts and the vendored package are gone by request: the repo
-    now contains only what the admin put there."""
+def test_a_push_writes_the_launcher_but_no_run_script_or_vendor_dir(admin_client, repo):
+    """The only machine-generated thing left, by explicit request, is the
+    `launcher/` folder. The old root-level `run.sh` and `_vendor/` stay gone."""
     bare, clone = repo
     admin_client.post("/files/save", data={"path": "some.txt", "content": "x\n"})
     tree = subprocess.run(
         ["git", "ls-tree", "-r", "--name-only", "HEAD"],
         cwd=bare, capture_output=True, text=True, check=True,
     ).stdout.splitlines()
+    assert "launcher/requirements.txt" in tree
+    assert "launcher/src/main.py" in tree
     assert "run.sh" not in tree
     assert not any(path.startswith("_vendor/") for path in tree)

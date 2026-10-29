@@ -36,6 +36,8 @@ from pathlib import Path
 
 import pexpect
 
+from . import launcher_bundle
+
 logger = logging.getLogger("jupyter_mcp_tools.git_push")
 
 _TIMEOUT_SECONDS = 30
@@ -108,6 +110,12 @@ def push_shared_dir(shared_dir: Path, *, username: str, password: str, commit_me
     if not (shared_dir / ".git").exists():
         return "общая директория не является git-репозиторием"
 
+    # Per explicit request: the child repo always ships a ready-to-run
+    # `launcher/` folder (deps + an entrypoint that starts the MCP server),
+    # rewritten from the current code on every push so it can't go stale.
+    # This is the one exception to "nothing is machine-generated here" --
+    # see common/launcher_bundle.py.
+    launcher_bundle.ensure(shared_dir)
 
     try:
         _run(shared_dir, "add", "-A")

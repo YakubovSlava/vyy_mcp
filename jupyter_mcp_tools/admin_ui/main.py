@@ -372,7 +372,7 @@ def _render_files(request: Request, **extra):
             "read_only": READ_ONLY,
             "active_page": "files",
             "shared_dir": str(shared_dir),
-            "files": repo_files.list_files(shared_dir),
+            "tree": repo_files.list_files(shared_dir),
             "message": extra.get("message"),
             "error": extra.get("error"),
         },

@@ -733,17 +733,39 @@ push` runs in that directory after every **install**, **delete**, and
 - A child relay's upload also triggers this: the main host pushes after
   installing, and a push failure is reported back through the relay's
   own success banner too.
-- **Nothing else is machine-generated.** Earlier versions also wrote a
-  `run.sh`, appended to `.gitignore`, and vendored a copy of this package
-  into `_vendor/` on every push. All of that is gone: the repo now
-  contains exactly what the admin put there. Everything at its root
-  except `tools/` is an ordinary file, managed from the **Файлы** tab —
-  upload a zip (unpacked as-is, binaries included), create a file, edit
-  it in a textarea, delete it. Each change is committed and pushed the
-  same way a skill install is, so the repo can hold source files for
-  running the server, docs, configs, anything.
+- **A machine-managed `launcher/` folder, and nothing else generated.**
+  Earlier versions wrote a root-level `run.sh`, appended to `.gitignore`,
+  and vendored a copy of this package into `_vendor/` on every push; all of
+  that is gone. The one remaining exception is `launcher/`, which is
+  rewritten on every push:
 
-  Three things are untouchable from that tab, each because the app itself
+  ```
+  launcher/
+    requirements.txt   third-party deps + `jupyter-mcp-tools @ git+...`
+    src/main.py        starts the MCP server (stdio) against the repo root
+    README.md
+  ```
+
+  ```bash
+  pip install -r launcher/requirements.txt
+  python launcher/src/main.py
+  ```
+
+  `requirements.txt` deliberately references the package **from git
+  rather than vendoring it**: a copied snapshot is exactly what goes stale,
+  and the point of this folder is that a clone always runs current logic.
+  The dependency list is read from the installed distribution's metadata,
+  so it can't drift from what the server actually needs. Set
+  `JUPYTER_MCP_TOOLS_PACKAGE_REPO_URL` on the admin-UI process to point it
+  at a fork.
+
+  Everything else at the repo root is an ordinary file managed from the
+  **Файлы** tab — upload a zip (unpacked as-is, binaries included), create
+  a file, edit it in a textarea, delete it, all shown as a collapsible tree
+  (folders remember their state across reloads). Each change is committed
+  and pushed the same way a skill install is.
+
+  Four things are untouchable from that tab, each because the app itself
   owns them:
 
   - **`tools/`** — the registry's own directory. A generic editor writing
@@ -753,6 +775,8 @@ push` runs in that directory after every **install**, **delete**, and
   - **`groups.json`** — the group store, edited on the **Группы** tab. A
     second editor would mean two writers for one file, with the UI's view
     going stale in between.
+  - **`launcher/`** — regenerated on every push, so hand edits would be
+    silently lost.
   - **`.git/`** — writing there rewrites remotes/history, and reading it
     exposes any credential embedded in the git config.
 
