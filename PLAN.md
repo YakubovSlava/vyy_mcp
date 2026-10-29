@@ -1181,7 +1181,26 @@ available to every user of the server — without restarting anything.
       SKILL.md              (or skill.md) -- plain markdown, no frontmatter
       .skill_meta.json      # admin-supplied description, written at install time
       ... (any other supporting files/folders)
+  groups.json               # group store, written by the "Группы" tab only
+  launcher/                 # regenerated on every push (common/launcher_bundle.py)
+    requirements.txt
+    src/main.py
+    README.md
+  ...                       # everything else is admin-owned, managed on the
+                            # "Файлы" tab: uploads, edits, deletions
 ```
+
+Three paths in the repository root are **app-owned** and refused by the
+"Файлы" tab (`common/repo_files.py`), each because the app itself writes
+them: `tools/` (the registry), `groups.json` (the group store), and
+`launcher/` (regenerated on every push). `.git/` is refused as well — not
+because the app owns it, but because writing there rewrites remotes/history
+and reading it exposes credentials in the git config.
+
+Nothing else is generated. An earlier design also wrote a root-level
+`run.sh`, appended to `.gitignore` and vendored this package into
+`_vendor/`; all three were removed per request, so a push now commits
+exactly what the admin put there, plus `launcher/`.
 
 ## Known limitations / explicitly out of scope
 

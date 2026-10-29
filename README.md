@@ -240,6 +240,14 @@ directory with `--shared-dir`.
 
 ### Zero-install: run straight from this git repo, no hosting needed
 
+> **Legacy path.** `scripts/run_from_git.sh` / `.bat` assume the repo is
+> public and PyPI is reachable. For a private repo or a corporate
+> package index, use the setup described in "Private repo and a corporate
+> package index" below instead — it handles credentials and a custom
+> index, and its `scripts/run_local.sh` launcher does the same job. These
+> two scripts are kept because existing agent configs may already point at
+> them; nothing new should be wired up this way.
+
 The stdio usage above still assumes the project is already installed
 somewhere (`/path/to/.venv/bin/...`). `scripts/run_from_git.sh` (Linux/
 macOS) and `scripts/run_from_git.bat` (Windows) remove even that step —

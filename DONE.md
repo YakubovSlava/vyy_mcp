@@ -1980,3 +1980,37 @@
   files; a **fresh clone** of that repo, run with the venv interpreter,
   completed a real MCP handshake, listed `echo`, and executed it. Full
   suite: 297/297.
+
+## 2026-10-29 (removed dead weight: build caches, one dead function, stale docs)
+
+- Cleanup pass after the feature churn. Found by actually tracing
+  references (grep + an AST sweep for unreferenced definitions) rather than
+  eyeballing the tree.
+- Deleted from disk (all git-ignored, none tracked): three
+  `.ipynb_checkpoints/` directories (including
+  `examples/.ipynb_checkpoints/build_archive-checkpoint.py`),
+  `jupyter_mcp_tools.egg-info/`, `.pytest_cache/` and every `__pycache__/`.
+  The `egg-info/PKG-INFO` was worth removing on its own: it held a stale
+  copy of the README that still described `run_from_git.sh` and the
+  vendoring step, so grepping the project surfaced removed features as if
+  they were current. It was also actively stale in `pyproject.toml` terms —
+  the console scripts added today weren't in it.
+- Deleted `common/setup_ops.describe()` — written "for future use" during
+  the launcher work, never called and never tested. The only genuinely dead
+  code the AST sweep found (the four other candidates are public module API
+  used from tests, or FastAPI route functions whose only reference is a
+  decorator).
+- Updated `PLAN.md`'s "Shared tools directory layout", which still described
+  only `tools/`: it now lists `groups.json`, `launcher/`, and the
+  admin-owned rest, and records the app-owned/reserved set and its
+  rationale. The surrounding history in PLAN/DONE was left untouched —
+  those are a record of decisions at the time, not current state.
+- Marked `scripts/run_from_git.sh`/`.bat` as **legacy** in the README rather
+  than deleting them: they assume a public repo and reachable PyPI, so
+  they're superseded for the private-repo/corporate-index case by
+  `run_local.sh`, but existing agent configs may already point at them.
+- Left deliberately alone (verified as intentional, not accidental):
+  `examples/` duplicating `shared_tools/` (source archives vs. a
+  ready-to-serve set), and `jupyter_ext.py` being enabled by dotted module
+  path instead of an entry point (documented as standalone-JupyterLab-only).
+  Full suite still 297/297.

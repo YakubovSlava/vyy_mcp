@@ -229,17 +229,5 @@ def install(cache: Path, config: LauncherConfig, *, log: Log = _noop) -> Path:
 # --------------------------------------------------------------------------
 
 
-def describe(checkout: Path) -> dict[str, object]:
-    """Small machine-readable summary, handy from `--check`/tests."""
-    return {
-        "checkout": str(checkout),
-        "venv_python": str(venv_python(checkout)),
-        "venv_exists": venv_python(checkout).exists(),
-        "stamp": (checkout / STAMP_FILE_NAME).read_text(encoding="utf-8").strip()
-        if (checkout / STAMP_FILE_NAME).exists()
-        else None,
-    }
-
-
 def dump_json(payload: object) -> str:
     return json.dumps(payload, indent=2, ensure_ascii=False)
