@@ -1700,3 +1700,208 @@
   shell/batch scripts themselves — verified via the Inspector commands
   and direct MCP stdio client sessions instead, same as every other
   live check in this project).
+
+## 2026-10-29 (interactive setup for private repos + a corporate package index)
+
+- Per explicit request: an end user can now run **one** command that asks
+  for their repo login, token and the corporate index URL, then clones,
+  creates a venv and wires the MCP server into an existing agent.
+  Requested shape was "пользователь пишет команду, где заполнит логин и
+  токен + кастомный index-url/trusted host → клон и пулл → venv → запуск
+  MCP внутри агента". Implemented as two halves, because a single
+  interactive script would have broken the protocol: an MCP client spawns
+  its server as a transport, so **stdout of that process is the JSON-RPC
+  stream** — any prompt, `git` progress line or pip banner on stdout
+  corrupts `initialize` and surfaces to the user as an unexplained "server
+  failed to start".
+  1. `jupyter_mcp_tools.bootstrap` (+ `scripts/bootstrap.py`, runnable
+     from a bare `python3` — stdlib only, since it's what creates the
+     venv) is the interactive, printing half. Asks repo URL,
+     username/token (`getpass`, no echo), index URL, trusted hosts, CA
+     bundle; clones, creates the venv, installs, writes
+     `~/.jupyter_mcp_tools/launcher.json` at `0600` (it holds a token) and
+     prints the paste-ready client snippet.
+  2. `jupyter_mcp_tools.launcher` (+ `scripts/run_local.sh`/`.bat`) is the
+     quiet half an agent spawns every start: best-effort `git pull`,
+     stamp-based install check, then `exec` the server. Nothing on stdout.
+- Shared filesystem/git/pip logic lives in `common/setup_ops.py` with a
+  `log` callable instead of `print`, so the quiet path can route every
+  diagnostic to stderr by construction rather than by remembering to.
+- Deliberate choices worth keeping: the token reaches `git` via
+  `GIT_CONFIG_*` env vars (not `-c http.extraheader=…`, readable in `ps`;
+  not in the remote URL, which persists to `.git/config` and outlives
+  rotation) and is never put in the agent's config file (those get
+  committed/backed up casually). A failed pull or a failed reinstall is
+  non-fatal when a usable checkout/venv exists — an expired token must not
+  take the server away — and concurrent launches are serialized with
+  `fcntl`/`msvcrt`, since agents routinely start several sessions at once
+  and parallel pulls in one checkout fail on `index.lock`. Installs are
+  keyed on a `requirements.txt`+index fingerprint so a warm start is one
+  pull plus an `exec` (~0.15s measured) rather than an install round trip.
+- Three real bugs found only by running it end to end, not by the tests:
+  - `uv pip install` without `--python` targets the *active* environment
+    and failed with "No virtual environment found" right after creating
+    the venv — fixed by passing `--python <venv python>` explicitly.
+  - `scripts/run_local.sh` and `scripts/bootstrap.py` were committed as
+    mode `100644`, so a fresh clone got a non-executable script and the
+    agent failed with "Permission denied". Fixed in the index
+    (`100755`), with a regression test that reads `git ls-files -s`
+    rather than the file's on-disk mode.
+  - With no venv (`--skip-install`), `run_local.sh` ran the *system*
+    interpreter and died on `No module named jupyter_mcp_tools` instead of
+    reaching the uvx fallback — restructured to try venv → uvx → a
+    system-wide install, in that order.
+  - Also caught: `--non-interactive` silently filled in the default cache
+    dir, so a bare invocation cloned into `~/.cache` and built a venv
+    there instead of failing fast. Now both `--repo-url` and `--cache-dir`
+    are required in that mode.
+- `.gitignore` gained `.install-stamp` and `.launcher.lock`: both live
+  inside the checkout and must never be pushed back to the shared repo the
+  admin UI pushes into.
+- Verified live against a real bare repo + real `mcp` client: setup →
+  `tools/list` (4 skills) → `call_tool`; `git push` of a new skill
+  upstream → next launch saw 5 skills with no user action; four
+  simultaneous launches all returned a working tool list (no `index.lock`);
+  the no-venv `uvx` path served the same tools. 226/226 tests passing.
+
+## 2026-10-29 (a health check for a running deployment, not just the tests)
+
+- Per explicit request ("как мне проверять работу приложения?"): added
+  `scripts/health_check.py`, which checks the two deployed processes the
+  way a user and an agent see them. `pytest` covers the code; nothing
+  covered "are these two processes actually serving", and the existing
+  `diagnose_hub_proxy.sh` only answers the narrower "why doesn't the proxy
+  reach it" question. Verified live against the running pair
+  (8765/8766): all checks pass, exit 0.
+- Checks chosen because they catch failures the app itself cannot report:
+  the admin UI answering; **the auth gate still gating** (a protected page
+  returning 200 to an anonymous visitor is a hard failure — the app "works"
+  perfectly while being open to anyone who can reach the port); the JSON
+  API rejecting anonymous *and* wrong credentials; a real MCP handshake and
+  `tools/list`; and an actual `call_tool`, since listing exercises only the
+  registry while calling exercises loading and running the skill module.
+  Disk-vs-served comparison catches "dropped a skill in, server never
+  picked it up" (warning, not failure — the sync loop polls every 5s).
+- Three defects found by deliberately testing the *failure* modes rather
+  than only the happy path, all fixed:
+  - a connection refusal escaped as an unhandled `urllib` traceback
+    instead of "is the process running?" — `URLError`/`TimeoutError` are
+    now normalized to status 0;
+  - AnyIO wraps MCP connection failures in a `TaskGroup` whose `str()` is
+    the useless "unhandled errors in a TaskGroup"; `_root_cause()` now
+    unwraps nested `ExceptionGroup`s and `__cause__` chains, so the
+    operator sees `[Errno 111] Connect call failed ...` (also tested for a
+    self-referential `__cause__` loop);
+  - `exit=0` was reported on failure in one code path — the exit code is
+    now derived solely from the failure counter, so it is trustworthy in a
+    deploy step or cron job.
+- 8 tests in `test_health_check.py`, including one that pins the
+  "auth gate NOT active" verdict (via a fake opener where every page
+  returns 200) and one asserting the filesystem check still reports when
+  the UI is unreachable — that last one caught a real bug where an early
+  `return` on a dead UI silently skipped the shared-dir check.
+- README gained "Checking a running deployment", pointing at the new
+  script and explaining when to reach for `diagnose_hub_proxy.sh` instead.
+  Full suite: 234/234 passing.
+
+## 2026-10-29 (admin-authored README.md for the child tools repo)
+
+- Per explicit request: the admin panel can now take markdown that gets
+  written to the `README.md` of the child repo — the shared directory that
+  every skill is pushed into. Implemented as a new **README** button in the
+  Skills page header → textarea → `POST /config/repo-readme`.
+- Stored in `AppConfig.repo_readme` and written by
+  `git_push._ensure_readme()` at push time, alongside the existing
+  `run.sh`/`.gitignore`/`_vendor` machine-managed files — the shared
+  directory is a git checkout other tools also touch, so push time is the
+  one point where the file's content and the commit are guaranteed to
+  agree. Saved-and-pushed immediately too, because "saved but not published
+  until someone happens to install a skill" would be a surprise.
+- Three rules chosen deliberately:
+  - **Blank means "stop publishing", not "delete the file."** This was the
+    real hazard: `push_shared_dir` runs on *every* skill install, so a
+    naive "write whatever config holds" would blank a hand-written
+    `README.md` the first time anyone installed a skill. Verified live
+    end-to-end that a hand-written README survives a skill install with the
+    field unset.
+  - The file is overwritten wholesale — the textarea is the source of
+    truth, the committed file is its published copy. Documented in the UI
+    so nobody expects their in-repo edit to survive.
+  - Same "only rewrite when content changed" rule as `run.sh`, so an
+    unchanged README never manufactures a commit on every push (tested by
+    counting commits in the bare remote).
+  - Main host only, and blocked in read-only mode, matching every other
+    config route.
+- Found and fixed a real regression in the existing suite: two tests
+  asserted `"git push" not in r.text` to mean "no push warning shown", and
+  the new explanatory paragraph in the settings dialog legitimately
+  contains those words, so both failed. Tightened them to match the actual
+  warning marker (`"Внимание:"`) instead of a phrase the page may document.
+- Also fixed a stray indentation slip that broke `_package_source_root`
+  while adding the neighbouring helper (caught by the first test run, not
+  by review).
+- 17 tests in `test_repo_readme.py` (file-writing rules + the route), plus
+  a live end-to-end check against a real bare remote: save → pushed
+  `README.md` in the remote, config persisted, textarea pre-filled,
+  `action="config/repo-readme"` relative (the JupyterHub-prefix rule), and
+  a hand-written README surviving an unrelated skill install.
+  Full suite: 251/251 passing.
+
+## 2026-10-29 (drop vendoring + generated run scripts; general file manager for the child repo)
+
+- Per explicit request: removed the vendored copy of this package
+  (`_vendor/`), the generated `run.sh`, and the generated `.gitignore`
+  entries from the child repo entirely. Pushing no longer injects anything
+  of its own — the repo now contains exactly what the admin put there.
+  Deleted: `_RUN_SCRIPT_TEMPLATE`, `_render_run_script`,
+  `_ensure_run_script`, `_ensure_gitignore`, `_package_source_root`,
+  `_ensure_vendored_package`, `DEFAULT_PACKAGE_REPO_URL`, and the
+  `POST /config/vendor/push` route ("Запушить сейчас") that existed only to
+  refresh them. `.gitignore` is no longer touched at all (per explicit
+  choice), so those obsolete lines stay wherever an admin put them.
+- Added a **Файлы** tab: upload a zip → unpacked at the repo root as-is
+  (binaries included), create a file, edit in a textarea, delete, download.
+  Every change commits and pushes through the same helper skill installs
+  use, so there's still exactly one code path that talks to git.
+- `tools/` is untouchable there, per explicit request, and so is `.git/`.
+  Reasoning: `tools/` is the registry's own directory — a generic editor
+  writing there would let the installed-skills list drift from disk, and
+  editing a skill's `tool.py` behind the registry's back silently changes
+  its name/schema. `.git/` is refused because writing there rewrites
+  remotes/history and reading it exposes credentials embedded in the git
+  config.
+- Also removed the README textarea added earlier the same day (and
+  `AppConfig.repo_readme`): with a general file editor, `README.md` is just
+  a file, and keeping a second source of truth in `config.json` for the
+  same path would have made the two editors fight. -1 feature, +1
+  simplification.
+- Four real bugs caught by writing the tests, all fixed:
+  - **`tools/` protection was bypassable by the wrapping-folder rule.** An
+    archive of `tools/evil/tool.py` was read as "one top-level folder,
+    therefore a wrapper" and rewritten to `evil/tool.py`, sidestepping the
+    reserved-name check entirely.
+  - **The wrapping-folder rule flattened legitimate subdirectories.** A
+    lone `assets/logo.png` looked like "only one top-level folder" and
+    landed as `logo.png`. Root-caused and fixed by using *explicit
+    directory entries* in the archive as the signal, which is what real
+    archivers write and what the name alone cannot tell you. Flattening is
+    unrecoverable; a file one level too deep is visible in the UI.
+  - **`install_archive` reported success but wrote nothing** — the file
+    move loop had been left inside the `with TemporaryDirectory()` block
+    but the `written` accumulation after it, so the staging dir was gone
+    before the move.
+  - A mangled list comprehension (`NameError: i`) in the member mapping.
+- Path handling is security-relevant and is tested as such: `..`,
+  absolute paths, symlinks pointing outside the repo, and case-variant
+  reserved names (`.GIT` on case-insensitive filesystems) are all refused
+  rather than sanitised, and archives are staged in a temp dir so a
+  rejected archive leaves nothing half-written behind.
+- 47 new tests: `test_repo_files.py` (27, mostly path-safety and archive
+  edge cases) and `test_files_page.py` (20, the HTTP layer incl. read-only
+  mode, auth, and that a mutation actually reaches git). Removed the tests
+  for the deleted vendoring/run.sh/README features. Full suite: 275/275.
+- Verified live end-to-end against a real bare remote: upload 3 files →
+  edit one → create one → delete a directory → `tools/` write refused →
+  pushed tree is exactly `conf/app.ini`, `run.sh`, `src/app.py`,
+  `tools/echo/tool.py`, with no `run.sh` or `_vendor/` generated by the
+  tool itself.

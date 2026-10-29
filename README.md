@@ -328,6 +328,92 @@ admin-UI save then commits and pushes straight into this same repo, so
 anyone running the zero-install path always gets your current skill
 set, not a stale snapshot.
 
+### Private repo and a corporate package index
+
+`run_from_git.sh` assumes the repo is reachable anonymously and that
+PyPI is reachable at all. Inside a corporate network neither usually
+holds: the repo wants a token, and packages come from an internal index
+(a PyPI mirror, Nexus, Artifactory). For that case there's an
+interactive setup step, run **once**, in a terminal, by the end user:
+
+```bash
+python3 /path/to/clone/scripts/bootstrap.py
+```
+
+Or, equivalently, `jupyter-mcp-tools-setup` once the package is
+installed. It asks for:
+
+- the repo URL, plus a username and token for it (the token is read
+  without echo),
+- the package index URL that replaces PyPI,
+- optional **trusted hosts** and/or a path to a **CA certificate**.
+
+Then it clones the repo, creates a venv inside that checkout, installs
+the project from your index, and prints the exact snippet to paste into
+an MCP client:
+
+```json
+{
+  "mcpServers": {
+    "jupyter-mcp-tools": {
+      "command": "sh",
+      "args": ["/home/you/.cache/jupyter-mcp-tools-src/scripts/run_local.sh"]
+    }
+  }
+}
+```
+
+`scripts/run_local.sh` (and its `run_local.bat` twin) is what the agent
+spawns on every start. It `git pull`s the checkout and `exec`s the
+server, so skills pushed by the admin UI show up on the next session
+with no action from the user. Notes on the parts that are easy to get
+wrong:
+
+- **The token never reaches the agent's config.** It's stored only in
+  `~/.jupyter_mcp_tools/launcher.json` (mode `0600`), next to
+  `config.json`. Client configs get committed, copied and backed up far
+  more casually, so a credential there leaks by accident.
+- **git receives it through an environment variable**, not a command
+  line (`-c http.extraheader=…` is readable from `ps`) and not inside
+  the remote URL (that persists to `.git/config` and survives token
+  rotation).
+- **A failed pull is not fatal.** An expired token or a dead network
+  leaves the existing checkout serving its current skills instead of
+  leaving the agent with no server at all.
+- **Concurrent launches are serialized** with a lock on the checkout.
+  Agents routinely open several sessions at once, and two `git pull`s in
+  one checkout fail with `index.lock`, i.e. a dead server in one of
+  them.
+- **Dependencies install only when `requirements.txt` (or the index
+  settings) change**, not on every start — otherwise every agent launch
+  pays an install round trip.
+- **`--trusted-host` is not the same as a CA bundle.** If a corporate
+  proxy re-signs HTTPS, the correct fix is pointing pip/git at the
+  proxy's CA (`--ca-bundle`); `--trusted-host` merely turns verification
+  off for that host.
+- **`uv` spells it differently.** If `uv` is installed, installs go
+  through it, and it has no `--trusted-host` — its equivalent is
+  `--allow-insecure-host`. The setup code handles both spellings;
+  copying pip flags into `uv` silently falls back to public PyPI.
+
+For scripted installs, `--non-interactive` takes the same values as flags
+(`--repo-url`, `--cache-dir`, `--index-url`, `--trusted-host`,
+`--ca-bundle`) and reads the token from a named env var via
+`--token-env`, so it never appears in the process list:
+
+```bash
+REPO_TOKEN=... python3 scripts/bootstrap.py --non-interactive \
+  --repo-url https://git.corp/team/vyy_mcp.git \
+  --cache-dir ~/.cache/vyy-mcp \
+  --index-url https://index.corp/simple \
+  --trusted-host index.corp \
+  --token-env REPO_TOKEN
+```
+
+Re-running setup with a blank token answer keeps the previously saved
+one — changing only the index or the checkout path doesn't require
+re-typing it.
+
 ## Where data files live
 
 Four files hold this app's own state — `admins.json`, `config.json`,
@@ -340,6 +426,12 @@ env var before starting either process:
 ```bash
 export MCP_TOOLS_DATA_DIR=/path/to/secrets
 ```
+
+A fifth file, `launcher.json`, appears in the same directory only after
+`jupyter-mcp-tools-setup` has run on that machine — it holds the end
+user's local checkout settings and repo token (mode `0600`), and is
+read by `scripts/run_local.sh` on every launch. It is unrelated to the
+admin-side files above and is never written by the admin UI.
 
 Each file also has its own specific override
 (`MCP_TOOLS_ADMINS_PATH`, `MCP_TOOLS_CONFIG_PATH`, `MCP_TOOLS_USERS_PATH`,
@@ -641,32 +733,75 @@ push` runs in that directory after every **install**, **delete**, and
 - A child relay's upload also triggers this: the main host pushes after
   installing, and a push failure is reported back through the relay's
   own success banner too.
-- **Every push also ensures `run.sh`, `.gitignore`, and a vendored copy
-  of the `jupyter_mcp_tools` package itself (`_vendor/`) exist at the
-  root of the shared directory, committed alongside the skills.** The
-  shared directory only ever holds skill *data* (`tools/`,
-  `groups.json`) on its own — unlike `scripts/run_from_git.sh` in
-  *this* source repo, which clones the whole project including the
-  code. So the push step also copies the running server's own
-  `jupyter_mcp_tools` package + `pyproject.toml`/`requirements.txt`
-  straight into `shared_dir/_vendor/`, and `run.sh` does `pip install
-  -e _vendor` — meaning a clone of the shared directory never needs to
-  reach the *main* source repo at all, only PyPI for this project's
-  own third-party dependencies (fastapi, uvicorn, ...), same as
-  installing any Python package. (If pushed from a non-editable
-  install with no source tree to copy, vendoring is skipped and
-  `run.sh` falls back to `pip install git+<main repo>` instead.)
-  The result: once git push is configured, **the shared directory's
-  own repo is an absolutely self-sufficient, ready-to-run snapshot of
-  your current skills** — anyone you give access to can `git clone` it
-  and run `./run.sh` (or point an MCP client's `command` straight at
-  it), with no admin UI, no hosting, and no dependency on this source
-  repo being reachable. `run.sh`/`_vendor/` are regenerated on every
-  push (only actually rewritten when content changed), so hand-editing
-  either is pointless — they're fully machine-managed.
+- **Nothing else is machine-generated.** Earlier versions also wrote a
+  `run.sh`, appended to `.gitignore`, and vendored a copy of this package
+  into `_vendor/` on every push. All of that is gone: the repo now
+  contains exactly what the admin put there. Everything at its root
+  except `tools/` is an ordinary file, managed from the **Файлы** tab —
+  upload a zip (unpacked as-is, binaries included), create a file, edit
+  it in a textarea, delete it. Each change is committed and pushed the
+  same way a skill install is, so the repo can hold source files for
+  running the server, docs, configs, anything.
+
+  `tools/` is deliberately untouchable from that tab: it's the
+  registry's own directory, and letting a generic file editor write
+  there would let the installed-skills list drift from what is actually
+  on disk. Skills are installed and removed on the **Навыки** tab, where
+  that bookkeeping happens. `.git/` is equally off-limits (writing there
+  means rewriting remotes/history, and reading it exposes any credential
+  embedded in the git config).
+- **`README.md` is just a file now**, edited on the **Файлы** tab like any
+  other. The dedicated README textarea (and its text stored in
+  `config.json`) was removed when the general file editor arrived: two
+  editors writing the same file — one from config, one typed — would
+  silently fight over it. Only the main host can edit files (a child
+  relay has no shared directory of its own), and everything is disabled
+  in read-only mode.
 
 ## Running tests
 
 ```bash
 pytest
 ```
+
+## Checking a running deployment
+
+`pytest` tells you the code is right; it says nothing about the two
+processes you actually deployed. For that, run the health check against
+the live ports:
+
+```bash
+python scripts/health_check.py
+python scripts/health_check.py --call create_skill     # also execute a tool
+python scripts/health_check.py --skip-admin            # MCP only
+```
+
+Exit code is `0` only if everything critical passed, so it works in a
+deploy step or a cron job. It checks the things that actually break in
+production, which unit tests can't see:
+
+- the admin UI answers on its port (and says "is the process running?"
+  rather than dumping a connection traceback when it doesn't);
+- **the auth gate still gates** — a protected page rendering `200` for an
+  anonymous visitor is reported as a failure, because the app then "works"
+  while being open to anyone who can reach the port;
+- the JSON API rejects both anonymous and wrong credentials;
+- the MCP server completes a real handshake and lists its tools;
+- a tool can be **called**, not merely listed — listing exercises the
+  registry, calling exercises loading and running the skill module;
+- the tools served match the directories on disk, catching "I dropped a
+  skill in but the server never picked it up" (reported as a warning,
+  since the sync loop polls every 5 seconds).
+
+Two further checks worth knowing about when something looks wrong but the
+health check passes:
+
+- **Did a change actually reach the agent?** Skills are re-scanned every 5
+  seconds, so after dropping a directory in, wait a moment and run the
+  health check again — the tool list is the ground truth of what an agent
+  sees, regardless of what the UI shows.
+- **Is the proxy the problem?** `scripts/diagnose_hub_proxy.sh <port>`
+  (run inside the single-user server) separates "the app is down" from
+  "the app is fine but `/user/<name>/proxy/<port>/` doesn't reach it" —
+  checks `jupyter-server-proxy`'s installation and enablement, the
+  JupyterHub env vars, and the real proxied path.
