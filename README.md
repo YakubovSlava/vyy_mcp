@@ -184,6 +184,12 @@ scripts/run_child_admin.sh https://main-host.example.org:8766 bob
 # Password for bob@https://main-host.example.org:8766: <enter the password the main admin gave you>
 ```
 
+The URL **must include the scheme** (`https://…`). A value pasted with
+surrounding quotes, a trailing space or a trailing slash is normalised, but a
+missing scheme is refused at startup with a message naming the setting — the
+alternative was curl's `URL using bad/illegal format or missing URL` at the
+first request, which names neither.
+
 This starts the admin UI on `127.0.0.1:8766` (same as before — open it
 through your own JupyterLab's `jupyter-server-proxy` exactly like the main
 host's instance, see "Open the admin UI from JupyterLab" above), but:

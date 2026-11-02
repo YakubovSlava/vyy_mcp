@@ -47,7 +47,40 @@ from ..common.registry import ToolAlreadyExistsError, ToolNotFoundError
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
-MAIN_HOST = os.environ.get("MCP_TOOLS_MAIN_HOST", "").rstrip("/")
+def _normalize_main_host(raw: str) -> str:
+    """Turn whatever the admin typed into a usable base URL, or fail loudly.
+
+    The old code only stripped a trailing slash, so a value that was empty,
+    surrounded by quotes (copy-pasted from the README), missing its scheme, or
+    carrying a trailing space went straight into `curl`. curl then failed with
+    "URL using bad/illegal format or missing URL" at the first request — long
+    after startup, with no hint about which input was wrong. Failing at import
+    time with the offending value is far cheaper to diagnose.
+
+    An *unset* variable is not an error: that's the main host, which is why
+    this returns "" for it.
+    """
+    if raw is None or raw == "":
+        # Main host: no relay configured.
+        return ""
+
+    value = raw.strip().strip("'\"").strip().rstrip("/")
+    if not value:
+        raise RuntimeError(
+            "MCP_TOOLS_MAIN_HOST задан, но пуст после очистки — укажите адрес "
+            "основного хоста, например https://main.example.org:8766"
+        )
+    if not value.startswith(("http://", "https://")):
+        raise RuntimeError(
+            f"MCP_TOOLS_MAIN_HOST должен начинаться с http:// или https://, "
+            f"получено: {raw!r}"
+        )
+    if " " in value or "\t" in value:
+        raise RuntimeError(f"MCP_TOOLS_MAIN_HOST содержит пробел: {raw!r}")
+    return value
+
+
+MAIN_HOST = _normalize_main_host(os.environ.get("MCP_TOOLS_MAIN_HOST"))
 CHILD_USER = os.environ.get("MCP_TOOLS_ADMIN_USER", "")
 CHILD_PASSWORD = os.environ.get("MCP_TOOLS_ADMIN_PASSWORD", "")
 INSECURE_TLS = os.environ.get("MCP_TOOLS_INSECURE_TLS") == "1"
@@ -235,11 +268,45 @@ def _reject_builtin(name: str, request: Request):
     return None
 
 
+def _main_host_error(exc: Exception) -> str:
+    """Turn a forwarding failure into something an admin can act on.
+
+    The raw curl text for a bad address is "URL using bad/illegal format or
+    missing URL" — it names neither the setting nor the value, which is exactly
+    the dead end a child admin hit. Anything that smells like a malformed URL
+    gets the configured value and the expected shape attached.
+    """
+    message = str(exc)
+    lowered = message.lower()
+    # curl's own wording for a mangled address varies by version and locale:
+    # "URL using bad/illegal format or missing URL", "URL rejected: Malformed
+    # input to a URL function", "Port number was not a decimal number".
+    # Matching on the URL keyword plus any of those tells is deliberately
+    # loose, since the alternative is showing the raw string to an admin who
+    # has no way to tell which setting produced it.
+    url_trouble = "url" in lowered and (
+        "rejected" in lowered
+        or "malformed" in lowered
+        or "format" in lowered
+        or "missing" in lowered
+        or "port number" in lowered
+        or "bad/illegal" in lowered
+    )
+    if url_trouble:
+        return (
+            f"Адрес основного хоста выглядит некорректно: {MAIN_HOST!r}. "
+            "Ожидается вид https://main.example.org:8766 — со схемой http:// или https:// "
+            f"и без пробелов. Перезапустите scripts/run_child_admin.sh с исправленным адресом. "
+            f"(curl: {message})"
+        )
+    return f"Could not reach main host {MAIN_HOST!r}: {message}"
+
+
 def _remote_list_files() -> tuple[list[dict], str | None]:
     try:
         resp = curl_client.get(f"{MAIN_HOST}/api/files", CHILD_USER, CHILD_PASSWORD, insecure=INSECURE_TLS)
     except curl_client.CurlError as exc:
-        return [], f"Could not reach main host: {exc}"
+        return [], _main_host_error(exc)
     if resp.status == 401:
         return [], "Main host rejected these credentials (401)."
     if resp.status != 200:

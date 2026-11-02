@@ -2450,3 +2450,36 @@
   clean afterwards — the cache doesn't come back at all now.
 - 1 new test asserts an executed skill leaves no `__pycache__`/`*.pyc` behind.
   Full suite: 407/407.
+
+## 2026-11-02 (a real child admin couldn't start: "URL using bad/illegal format")
+
+- Reported by a second person trying to run the child relay: it failed with
+  `curl: URL using bad/illegal format or missing URL`. Reproduced curl's exact
+  error (exit 3) to identify the causes: an empty value, a value containing a
+  space, or a value that isn't a URL at all.
+- Root cause: `MAIN_HOST` was taken from `MCP_TOOLS_MAIN_HOST` with only
+  `.rstrip("/")`. Anything else — surrounding quotes copy-pasted from the
+  README, a trailing space, a missing scheme — went into `curl` verbatim and
+  only failed at the *first request*, with a message naming neither the
+  setting nor the value. `scripts/run_child_admin.sh` did no validation
+  either, so the process appeared to start fine.
+- Three changes:
+  1. `_normalize_main_host()` strips quotes and whitespace, drops a trailing
+     slash, and refuses a missing scheme / internal space at **import time**
+     with the offending value in the message. An *unset* variable still means
+     "main host" and returns "" — that distinction is exactly what a first
+     attempt got wrong, and a reload test caught it.
+  2. `scripts/run_child_admin.sh` normalises the same way and exits with a
+     clear one-line error plus an example, instead of reaching uvicorn.
+  3. `_main_host_error()` translates curl's URL complaints into a message that
+     names `MCP_TOOLS_MAIN_HOST`, the value, the expected shape and how to fix
+     it. Curl's wording varies by version ("bad/illegal format", "URL
+     rejected: Malformed input", "Port number was not a decimal number"), so
+     the match covers those variants rather than one literal string — a first
+     version matched only "format"/"missing" and silently missed the string
+     curl actually produced here, which the test caught.
+- Network failures keep their own message (with the host), since "could not
+  connect" and "your address is malformed" need different reactions.
+- 12 new tests: normalisation of the messy-but-fixable inputs, refusal of the
+  genuinely bad ones, the unset-vs-empty distinction, and both error
+  translations. Full suite: 419/419.

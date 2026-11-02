@@ -308,3 +308,58 @@ def test_child_relay_file_rename_keeps_reserved_rules(child_client, tmp_path):
 
     r = child_client.post("/files/rename", data={"path": "notes.md", "new_name": "tools"})
     assert "служебн" in r.text
+
+
+# --------------------------------------------------------------------------
+# a bad MAIN_HOST must fail fast and say why
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        (None, ""),  # unset == main host, not an error
+        ("", ""),
+        ("'https://h.example:8766'", "https://h.example:8766"),
+        ('"https://h.example:8766/"', "https://h.example:8766"),
+        ("https://h.example:8766 ", "https://h.example:8766"),
+        ("  'https://h.example:8766/'  ", "https://h.example:8766"),
+    ],
+)
+def test_main_host_is_normalised(raw, expected):
+    """Real child admins paste the URL with quotes or a trailing space, both
+    of which used to reach curl verbatim and fail at the first request."""
+    from jupyter_mcp_tools.admin_ui.main import _normalize_main_host
+
+    assert _normalize_main_host(raw) == expected
+
+
+@pytest.mark.parametrize("raw", ["   ", "h.example:8766", "https://h.example:8766/a b", "ftp://x"])
+def test_a_bad_main_host_refuses_to_start(raw):
+    """Failing at import beats failing with curl's "URL using bad/illegal
+    format or missing URL", which names neither the setting nor the value."""
+    from jupyter_mcp_tools.admin_ui.main import _normalize_main_host
+
+    with pytest.raises(RuntimeError) as exc:
+        _normalize_main_host(raw)
+    assert "MCP_TOOLS_MAIN_HOST" in str(exc.value)
+
+
+def test_the_url_error_is_translated_for_the_admin():
+    """The raw curl text is a dead end: it doesn't say which value is wrong."""
+    from jupyter_mcp_tools.admin_ui import main as admin_main
+    from jupyter_mcp_tools.common.curl_client import CurlError
+
+    message = admin_main._main_host_error(
+        CurlError("curl exited 3: curl: (3) URL rejected: Malformed input to a URL function")
+    )
+    assert "Адрес основного хоста" in message
+    assert "https://" in message
+
+
+def test_a_network_error_keeps_the_host_in_the_message():
+    from jupyter_mcp_tools.admin_ui import main as admin_main
+    from jupyter_mcp_tools.common.curl_client import CurlError
+
+    message = admin_main._main_host_error(CurlError("curl exited 7: Failed to connect"))
+    assert "Could not reach main host" in message

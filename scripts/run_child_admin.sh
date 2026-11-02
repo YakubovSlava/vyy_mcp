@@ -20,12 +20,35 @@ set -euo pipefail
 
 if [ "$#" -lt 2 ]; then
   echo "Usage: $0 <main-host-url> <username> [port]" >&2
+  echo "  example: $0 https://main.example.org:8766 alice 8766" >&2
   exit 1
 fi
 
 MAIN_HOST="$1"
 USERNAME="$2"
 PORT="${3:-8766}"
+
+# Normalise before anything else uses it. Without this, a value copied with
+# surrounding quotes, a trailing space or no scheme reached `curl` unchanged
+# and it failed at the first request with "URL using bad/illegal format or
+# missing URL" — an error that names neither the variable nor the bad value.
+MAIN_HOST="${MAIN_HOST%\"}"; MAIN_HOST="${MAIN_HOST#\"}"
+MAIN_HOST="${MAIN_HOST%\'}"; MAIN_HOST="${MAIN_HOST#\'}"
+MAIN_HOST="$(printf '%s' "$MAIN_HOST" | tr -d '[:space:]')"
+MAIN_HOST="${MAIN_HOST%/}"
+
+if [ -z "$MAIN_HOST" ]; then
+  echo "error: main host URL is empty" >&2
+  exit 1
+fi
+case "$MAIN_HOST" in
+  http://*|https://*) ;;
+  *)
+    echo "error: main host must start with http:// or https://, got: '$1'" >&2
+    echo "       e.g. https://main.example.org:8766" >&2
+    exit 1
+    ;;
+esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
