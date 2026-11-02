@@ -701,6 +701,15 @@ letting an agent bootstrap its own tools on the fly.
   and writes a new code skill from raw source — name/description/group
   all come from the function/module in `source`, same as a code-skill
   upload.
+- Both kinds are **verified before anything is written**, by actually
+  importing a code skill in a throwaway subprocess (`common/skill_verify.py`)
+  under the server's own interpreter. That catches what a pure AST check
+  can't: a module that parses fine and then fails on import — notably
+  `from lib.util import ...`, which the archive validator accepts and which
+  only explodes when the tool is first called. A module-level infinite loop
+  or blocking network call becomes a timeout instead of a wedged server.
+  The function itself is never called, so installing has no side effects.
+  Pass `verify_only=True` to dry-run the check and write nothing.
 - `overwrite=True` replaces an existing skill with the same name.
 
 It writes straight into `load_config().shared_dir_path` — the exact

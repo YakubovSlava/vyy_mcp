@@ -2149,3 +2149,46 @@
 - 15 new tests in `test_builtin_skills.py`; ~11 existing tests updated where
   they asserted an exact tool list that now always includes the built-in.
   Full suite: 322/322.
+
+## 2026-11-02 (create_skill verifies the result before installing it)
+
+- Per request: the helper (and `create_skill` itself) now **validates the
+  skill it produced** instead of just writing it. New
+  `common/skill_verify.py`.
+- The static validator only parses source, which is why the trap found
+  earlier today slipped through: `from lib.util import helper` passes
+  `validate_archive` and dies at call time with `ModuleNotFoundError`,
+  because the skill's folder is never added to `sys.path`. Verification now
+  **imports the candidate for real**, so that case is rejected at creation
+  with an explanation plus the fix (`__file__`, or keep it in one file).
+- Two deliberate constraints on how it imports:
+  - **In a subprocess with a timeout.** Importing executes module-level
+    code, so a stray `while True:` or a blocking network call at import
+    would otherwise hang the MCP server permanently. Verified with a 3s
+    timeout: reported as a timeout, server unaffected.
+  - **Under the same interpreter** (`sys.executable`), so a skill importing
+    `requests`/`mcp` resolves against exactly the environment the server
+    runs in. A check that passes in a different environment is worse than
+    none.
+  - It also imports from a directory *outside* the candidate's own, and
+    keeps the candidate's folder off `sys.path`, reproducing the loader's
+    real conditions rather than accidentally making sibling imports work.
+- Verification never calls the function — only imports it — so installing
+  can't trigger side effects. Pinned by a test with a `SENTINEL`-appending
+  function.
+- Added `verify_only=True` to `create_skill`: runs the full check, writes
+  nothing. Useful for a dry run before committing to a name or signature.
+- The report on success is concrete rather than a bare ack: it names the
+  skill, shows the final signature and required parameters — the same
+  information an agent gets from the MCP schema, so a mismatch is visible
+  immediately.
+- The built-in `skill_builder` text now documents verification and
+  `verify_only`, so an agent knows a failure message is a real verdict
+  rather than a flake to retry.
+- 12 tests in `test_skill_verify.py` covering: the sibling-import trap,
+  missing docstring, syntax errors, empty source, module-level hang,
+  side-effect-free install, third-party imports still allowed, and the doc
+  bundle's required fields. Full suite: 334/334.
+- Verified through a real MCP session: a skill with a broken sibling import
+  was rejected with the actionable message, `verify_only` left the shared
+  directory untouched, and a function without a docstring was refused.
