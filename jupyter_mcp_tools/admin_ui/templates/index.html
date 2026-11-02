@@ -67,6 +67,7 @@
       <div class="skill-actions">
         <a class="edit-btn" href="tools/{{ t.name }}/download" title="Скачать .zip с этим навыком">Скачать</a>
         {% if not read_only and not t.builtin %}
+        <button type="button" class="edit-btn" data-name="{{ t.name }}" onclick="openRenameSkill(this)">Переименовать</button>
         {% if t.kind == "doc" %}
         <button type="button" class="edit-btn" data-name="{{ t.name }}" data-description="{{ t.description }}" data-group="{{ t.group or '' }}" onclick="openEditDescription(this)">Редактировать</button>
         {% endif %}
@@ -214,6 +215,27 @@
   </form>
 </dialog>
 
+<dialog id="renameSkillDialog">
+  <form method="post" id="renameSkillForm" class="dialog-body">
+    <h3>Переименовать навык</h3>
+    <p>Имя — это и папка навыка, и имя MCP-инструмента. У code-навыка
+       переименовывается ещё и сама функция в файле, иначе сервер её не найдёт.</p>
+    <label>
+      Новое имя
+      <input type="text" name="new_name" id="renameSkillInput" required
+             pattern="[a-z0-9][a-z0-9_-]{1,63}"
+             title="строчные латинские буквы, цифры, дефис и подчёркивание" />
+    </label>
+    <p style="margin-top:-0.5rem;font-size:0.8rem;color:var(--muted)">
+      Только <code>[a-z0-9_-]</code>, начинается с буквы или цифры, 2–64 символа.
+    </p>
+    <div class="dialog-actions">
+      <button type="button" class="btn ghost" onclick="renameSkillDialog.close()">Отмена</button>
+      <button type="submit" class="btn primary">Переименовать</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="editDescriptionDialog">
   <form method="post" id="editDescriptionForm" class="dialog-body">
     <h3>Редактировать навык</h3>
@@ -246,6 +268,17 @@
     document.getElementById("editDescriptionInput").value = btn.dataset.description;
     document.getElementById("editGroupInput").value = btn.dataset.group || "";
     editDescriptionDialog.showModal();
+  }
+
+  function openRenameSkill(btn) {
+    const name = btn.dataset.name;
+    // Relative action, like every other form here — a leading "/" would
+    // escape the JupyterHub proxy prefix.
+    document.getElementById("renameSkillForm").action = "tools/" + encodeURIComponent(name) + "/rename";
+    const input = document.getElementById("renameSkillInput");
+    input.value = name;
+    renameSkillDialog.showModal();
+    input.select();
   }
 
   function filterSkills(query) {

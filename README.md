@@ -607,6 +607,30 @@ There's no equivalent for code skills: their description/group are the
 function's own docstring and the module's `__group__`, edited by editing
 the `.py` file directly.
 
+### Renaming a skill
+
+Any non-built-in skill has a **Переименовать** button. The name is not just
+a label, so renaming moves three things at once:
+
+| Kind | What changes |
+|---|---|
+| doc (`SKILL.md`) | the folder (the name lives only there) |
+| code (`.py`) | the folder **and** the entrypoint function inside the file |
+
+For a code skill the function is renamed with a targeted source edit — not
+`ast.unparse` — so comments, blank lines and formatting survive. Auxiliary
+files move with the bundle, and for a doc skill the description/group in
+`.skill_meta.json` are untouched.
+
+The rename is verified before it's committed: the edited module is written
+to a staging directory, loaded, and only then swapped in. A rename that
+would produce a module the server can't load aborts with the original skill
+left exactly as it was.
+
+Names must match `[a-z0-9][a-z0-9_-]{1,63}`; taking a name that's already
+in use is refused. Built-in skills (`skill_builder`) can't be renamed — they
+are restored from code on the next sync.
+
 ### Groups and search
 
 Any skill (code or doc) can be tagged with a `group` — for a code skill

@@ -2230,3 +2230,36 @@
   in-process relay: nav correct, 2 files uploaded, edit byte-exact
   (`'# правка\n'`), `tools/` refused, binary download intact, delete
   propagated. Full suite: 343/343.
+
+## 2026-11-02 (rename a skill: folder, tool name, and the function itself)
+
+- Per request: skills can be renamed from the admin UI. `registry.rename_tool()`
+  plus `/tools/{name}/rename` (HTML) and `/api/tools/{name}/rename` (JSON),
+  wired into the row controls with a dialog.
+- The name isn't a label here — it's the folder on disk, the MCP tool name an
+  agent sees, and for a code skill the entrypoint function's own name (which
+  `manifest.function_name` re-reads from the source). So a rename has to move
+  all three together:
+  - doc skill: a folder move is enough, since its name lives only there;
+  - code skill: the function is renamed **in the source** as well, or the
+    loader would look for a module whose entrypoint no longer exists.
+- The source edit is targeted (`_rename_function_in_source` splices the
+  identifier at the `def` position found via `ast`) rather than
+  `ast.unparse`, which would reformat the entire file and make every rename a
+  whole-file diff. Pinned by a test that comments and inline notes survive.
+- A rename is verified before it lands: the edited module is written to a
+  `.rename-` staging dir, `validate_dir` loads it, and only then is it moved
+  into place. A rename that produces an unloadable module aborts with the
+  original untouched — a half-moved skill would be worse than a refusal.
+- Edge cases handled explicitly: same-name is a no-op message rather than an
+  error; a taken name is refused (400 in the API, a banner in the UI);
+  built-ins can't be renamed (they'd be restored anyway); read-only mode
+  blocks it; the relay forwards to the main host so a child admin gets the
+  same behaviour instead of a second implementation.
+- 17 tests in `test_rename_skill.py` covering both kinds, comment/formatting
+  preservation, auxiliary files, the loader finding the renamed entrypoint,
+  every refusal path, read-only, the API, and that the UI's form action stays
+  relative (the JupyterHub-prefix rule).
+- Verified live: created a code skill through MCP, renamed it, and a
+  connected client then saw `wordcount` in `tools/list` and executed it
+  successfully. Full suite: 360/360.

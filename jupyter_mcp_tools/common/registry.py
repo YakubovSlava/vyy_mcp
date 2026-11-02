@@ -35,7 +35,7 @@ from .doc_skill import (
     validate_doc_skill_dir,
     write_meta,
 )
-from .manifest import Manifest, ToolValidationError, root_python_files, validate_archive, validate_dir
+from .manifest import NAME_RE, Manifest, ToolValidationError, root_python_files, validate_archive, validate_dir
 
 AnyManifest = Manifest | DocSkillManifest
 
@@ -260,6 +260,119 @@ def remove_tool(shared_dir: Path, name: str) -> None:
     if not dest.exists():
         raise ToolNotFoundError(f"tool '{name}' is not installed")
     shutil.rmtree(dest)
+
+
+def rename_tool(shared_dir: Path, old_name: str, new_name: str) -> AnyManifest:
+    """Rename an installed skill, folder and (for code) function included.
+
+    The name is not just a label: it's the folder on disk, the MCP tool name
+    an agent sees, and for a code skill also the entrypoint function's own
+    name (`manifest.function_name` re-reads it after the edit). All three
+    have to move together or the server registers a tool that its own loader
+    can't find.
+
+    Code skills are therefore rewritten, not just moved: the function is
+    renamed with `ast` (a targeted source edit preserving comments and
+    formatting, rather than `ast.unparse` which would reformat the whole
+    file). A module that calls itself recursively, or shadows the name
+    elsewhere, is the reason this is verified afterwards rather than
+    trusted — see `install`-style verification in `common/skill_verify.py`.
+    """
+    if not NAME_RE.match(new_name):
+        raise ToolValidationError(
+            f"имя должно соответствовать [a-z0-9][a-z0-9_-]{{1,63}}, получено: «{new_name}»"
+        )
+
+    base = tools_dir(shared_dir)
+    source_dir = base / old_name
+    if not source_dir.exists():
+        raise ToolNotFoundError(f"tool '{old_name}' is not installed")
+
+    destination = base / new_name
+    if destination.exists():
+        raise ToolAlreadyExistsError(f"навык «{new_name}» уже существует")
+
+    manifest = _load_installed(source_dir)
+    if manifest is None:
+        raise ToolValidationError(f"«{old_name}» не является корректным навыком")
+
+    # A doc skill's name lives only in the folder name, so a move is enough.
+    if isinstance(manifest, DocSkillManifest):
+        source_dir.rename(destination)
+        return validate_doc_skill_dir(destination)
+
+    module_path = source_dir / f"{manifest.module_name}.py"
+    source = module_path.read_text(encoding="utf-8")
+    renamed = _rename_function_in_source(source, old_function=manifest.function_name, new_function=new_name)
+    if renamed is None:
+        raise ToolValidationError(
+            f"не удалось переименовать функцию «{manifest.function_name}» в {module_path.name}"
+        )
+
+    # Write, verify, and only then swap the folder: a rename that produces a
+    # module which no longer loads must leave the original untouched.
+    staging = Path(tempfile.mkdtemp(dir=base, prefix=".rename-"))
+    try:
+        staged_module = staging / module_path.name
+        staged_module.write_text(renamed, encoding="utf-8")
+        for extra in source_dir.rglob("*"):
+            if extra.is_dir() or extra == module_path:
+                continue
+            target = staging / extra.relative_to(source_dir)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(extra, target)
+
+        validated = validate_dir(staging)
+        if validated.name != new_name:
+            raise ToolValidationError(f"после переименования имя функции стало «{validated.name}»")
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+    source_dir.rename(destination)
+    shutil.move(str(staging / module_path.name), str(destination / module_path.name))
+    return validate_dir(destination)
+
+
+def _rename_function_in_source(source: str, *, old_function: str, new_function: str) -> str | None:
+    """Rename the entrypoint function with a minimal, formatting-preserving
+    edit: replace the identifier at its definition position only, so
+    comments, blank lines and the rest of the file stay byte-identical.
+
+    Returns None when the definition can't be located (e.g. a decorated
+    function whose name the AST still sees, but at an unexpected offset).
+    """
+    import ast
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == old_function:
+            lines = source.splitlines(keepends=True)
+            start_line = node.lineno - 1
+            # The `def` keyword may be indented or decorated; the AST gives
+            # the column of the `def` token itself, so splice exactly there.
+            line = lines[start_line]
+            column = node.col_offset
+            if not line[column:].startswith("def "):
+                # Decorators shift col_offset in some Python versions; fall
+                # back to locating "def <name>" on that line.
+                marker = f"def {old_function}"
+                index = line.find(marker)
+                if index == -1:
+                    return None
+                column = index
+            after = line[column : column + 4 + len(old_function)]
+            if after != f"def {old_function}":
+                return None
+            lines[start_line] = (
+                line[:column] + f"def {new_function}" + line[column + 4 + len(old_function) :]
+            )
+            return "".join(lines)
+    return None
 
 
 def update_doc_skill_metadata(shared_dir: Path, name: str, *, description: str, group: str = "") -> DocSkillManifest:

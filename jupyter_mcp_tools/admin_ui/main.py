@@ -1041,6 +1041,54 @@ def create_doc_skill_route(
     return _redirect_to_root(request, message=message)
 
 
+@app.post("/tools/{name}/rename")
+def rename_tool_route(
+    request: Request,
+    name: str,
+    new_name: str = Form(...),
+    _admin: str | None = Depends(require_admin_page),
+):
+    """Renames a skill: the folder, the MCP tool name, and — for a code
+    skill — the entrypoint function itself, which is where its name lives."""
+    if READ_ONLY:
+        return _redirect_to_root(request, error=READ_ONLY_MESSAGE)
+    if (refusal := _reject_builtin(name, request)) is not None:
+        return refusal
+
+    new_name = new_name.strip()
+    if new_name == name:
+        return _redirect_to_root(request, message="Имя не изменилось.")
+
+    if MAIN_HOST:
+        resp = _forward_post(
+            f"/api/tools/{name}/rename", {"new_name": new_name}
+        )
+        payload = json.loads(resp.body) if resp.body else {}
+        if resp.status_code != 200:
+            return _redirect_to_root(request, error=payload.get("error", f"основной хост вернул HTTP {resp.status_code}."))
+        message = f"«{name}» переименован в «{payload.get('name', new_name)}»."
+        if payload.get("git_push_error"):
+            return _redirect_to_root(request, error=f"{message} Внимание: git push не выполнен ({payload['git_push_error']}).")
+        return _redirect_to_root(request, message=message)
+
+    config = load_config()
+    shared_dir = config.shared_dir_path
+    try:
+        manifest = registry.rename_tool(shared_dir, name, new_name)
+    except ToolNotFoundError:
+        return _redirect_to_root(request, error=f"«{name}» не установлен.")
+    except ToolAlreadyExistsError:
+        return _redirect_to_root(request, error=f"Навык «{new_name}» уже существует.")
+    except ToolValidationError as exc:
+        return _redirect_to_root(request, error=str(exc))
+
+    push_error = _maybe_git_push(config, shared_dir, f"Rename skill '{name}' -> '{manifest.name}'")
+    message = f"«{name}» переименован в «{manifest.name}»."
+    if push_error:
+        return _redirect_to_root(request, error=f"{message} Внимание: git push не выполнен ({push_error}).")
+    return _redirect_to_root(request, message=message)
+
+
 @app.post("/tools/{name}/delete")
 def delete_tool(request: Request, name: str, _admin: str | None = Depends(require_admin_page)):
     if READ_ONLY:
@@ -1280,6 +1328,32 @@ def api_download_tool(name: str, _admin: str | None = Depends(require_admin_api)
         media_type="application/zip",
         background=BackgroundTask(archive_path.unlink, missing_ok=True),
     )
+
+
+@app.post("/api/tools/{name}/rename")
+def api_rename_tool(
+    name: str,
+    new_name: str = Form(...),
+    _admin: str | None = Depends(require_admin_api),
+):
+    if READ_ONLY:
+        return JSONResponse(status_code=403, content={"error": READ_ONLY_MESSAGE})
+    if builtin_skills.is_builtin(name):
+        return JSONResponse(status_code=403, content={"error": BUILTIN_SKILL_MESSAGE})
+    if MAIN_HOST:
+        return _forward_post(f"/api/tools/{name}/rename", {"new_name": new_name})
+
+    config = load_config()
+    shared_dir = config.shared_dir_path
+    try:
+        manifest = registry.rename_tool(shared_dir, name, new_name.strip())
+    except ToolNotFoundError as exc:
+        return JSONResponse(status_code=404, content={"error": str(exc)})
+    except (ToolAlreadyExistsError, ToolValidationError) as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+
+    push_error = _maybe_git_push(config, shared_dir, f"Rename skill '{name}' -> '{manifest.name}'")
+    return {"name": manifest.name, "git_push_error": push_error}
 
 
 @app.post("/api/tools/{name}/delete")
