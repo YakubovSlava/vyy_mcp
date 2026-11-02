@@ -43,6 +43,68 @@ logger = logging.getLogger("jupyter_mcp_tools.git_push")
 _TIMEOUT_SECONDS = 30
 _PROMPT_RE = re.compile(r"(username|password|логин|пароль)", re.IGNORECASE)
 
+# Junk that must never be committed from the shared repo. Two sources:
+#
+# - **Python bytecode.** Importing an installed skill makes CPython write
+#   `__pycache__/*.pyc` *inside the skill's own folder*, which is inside the
+#   repo — so a plain `git add -A` swept compiled bytecode into the commit,
+#   and from there into every clone. Verified: one skill call followed by a
+#   push shipped `tools/<name>/__pycache__/tool.cpython-312.pyc`.
+# - **Notebook checkpoints and OS/editor droppings**, which arrive when
+#   someone works in a checkout by hand.
+#
+# This is enforced against the *index*, not just written into a `.gitignore`
+# the admin may never have: `git add -A` honours `.gitignore` for untracked
+# files, but a file already tracked stays tracked, and the previous version of
+# this module appended nothing at all.
+_IGNORED_PATTERNS = (
+    "__pycache__/",
+    "*.py[cod]",
+    ".ipynb_checkpoints/",
+    ".pytest_cache/",
+    "*.egg-info/",
+    ".DS_Store",
+)
+
+_GITIGNORE_BLOCK_HEADER = "# Added by jupyter-mcp-tools: never commit generated files."
+
+
+def _ensure_gitignore(shared_dir: Path) -> None:
+    """Append the ignore rules the repo needs to stay clean.
+
+    Appends only the missing lines, and only once per rule, so re-running on
+    every push is a no-op and an admin's own `.gitignore` is never rewritten.
+    """
+    path = shared_dir / ".gitignore"
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    missing = [line for line in _IGNORED_PATTERNS if line not in existing.splitlines()]
+    if not missing:
+        return
+    separator = "" if not existing else ("\n" if existing.endswith("\n") else "\n\n")
+    header = "" if _GITIGNORE_BLOCK_HEADER in existing else _GITIGNORE_BLOCK_HEADER + "\n"
+    path.write_text(existing + separator + header + "\n".join(missing) + "\n", encoding="utf-8")
+
+
+def _drop_ignored_from_index(shared_dir: Path) -> list[str]:
+    """Remove already-tracked generated files from the index.
+
+    `.gitignore` alone can't do this: once a `.pyc` is committed, git keeps
+    tracking it no matter what the ignore file says. Without this, the bytecode
+    that the *first* push shipped would stay in the repo forever, and every
+    later push would keep re-adding it. Files are removed from the index only —
+    the working copy is untouched, so nothing breaks mid-run.
+    """
+    removed: list[str] = []
+    for pattern in _IGNORED_PATTERNS:
+        listed = _run(shared_dir, "ls-files", "-z", "--", pattern)
+        for relative in (listed.stdout or "").split("\0"):
+            if not relative:
+                continue
+            _run(shared_dir, "rm", "--cached", "--quiet", "--", relative)
+            removed.append(relative)
+    return removed
+
+
 def _run(shared_dir: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         ["git", "-C", str(shared_dir), *args],
@@ -116,6 +178,9 @@ def push_shared_dir(shared_dir: Path, *, username: str, password: str, commit_me
     # This is the one exception to "nothing is machine-generated here" --
     # see common/launcher_bundle.py.
     launcher_bundle.ensure(shared_dir)
+
+    _ensure_gitignore(shared_dir)
+    _drop_ignored_from_index(shared_dir)
 
     try:
         _run(shared_dir, "add", "-A")

@@ -53,6 +53,29 @@ LAUNCHER_DIR_NAME = "launcher"
 # .git must never be written to or read from through the UI: writing there
 # is how you rewrite a repo's history/remotes, and reading it exposes
 # credentials embedded in config files.
+# Paths that must never be uploaded or created through the UI, no matter
+# where in the tree they sit: compiled bytecode, notebook checkpoints, editor
+# and OS droppings, and virtualenvs. These are generated locally, carry no
+# meaning in a shared repo, and actively cause trouble there — a stale `.pyc`
+# can be imported instead of updated source, and checkpoints silently shadow
+# the real notebook.
+#
+# Matched on *any* path segment (a directory anywhere in the tree) or on the
+# filename suffix, because these appear at every depth: a skill folder is as
+# likely to grow `__pycache__/` as the repo root is.
+JUNK_DIR_NAMES = frozenset({
+    "__pycache__",
+    ".ipynb_checkpoints",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".venv",
+    "venv",
+    "node_modules",
+})
+JUNK_FILE_SUFFIXES = (".pyc", ".pyo", ".pyd")
+JUNK_FILE_NAMES = frozenset({".DS_Store", "Thumbs.db"})
+
 RESERVED_NAMES = frozenset(
     {".git", PROTECTED_DIR_NAME, GROUPS_FILE_NAME, LAUNCHER_DIR_NAME}
 )
@@ -77,6 +100,27 @@ class RepoFile:
     is_dir: bool
     editable: bool  # text and decodable — the UI offers "Редактировать"
     child_count: int = 0  # files+dirs directly beneath a directory
+
+
+def _reject_junk(parts: tuple[str, ...]) -> None:
+    """Refuse generated/throwaway paths at any depth.
+
+    Enforced in `_resolve`, so *every* operation inherits it — upload, edit,
+    rename, delete, read — rather than each route remembering to check.
+    """
+    for part in parts:
+        if part in JUNK_DIR_NAMES:
+            raise FileValidationError(
+                f"«{part}» — сгенерированные файлы (кэш, чекпоинты, окружения) "
+                "в репозиторий не попадают"
+            )
+    name = parts[-1] if parts else ""
+    if name in JUNK_FILE_NAMES:
+        raise FileValidationError(f"«{name}» — служебный файл, в репозиторий не попадает")
+    if name.lower().endswith(JUNK_FILE_SUFFIXES):
+        raise FileValidationError(
+            f"«{name}» — скомпилированный файл, в репозиторий не попадает"
+        )
 
 
 def _resolve(root: Path, relative: str, *, must_exist: bool = False) -> Path:
@@ -108,6 +152,8 @@ def _resolve(root: Path, relative: str, *, must_exist: bool = False) -> Path:
         raise FileValidationError(
             f"«{parts[0]}» — служебная папка, менять её через эту страницу нельзя"
         )
+
+    _reject_junk(tuple(parts))
 
     target = (root / relative).resolve()
     root_resolved = root.resolve()
@@ -201,6 +247,13 @@ def list_files(root: Path) -> list[RepoFile]:
             if relative in RESERVED_NAMES:
                 continue
             if entry.is_symlink():
+                continue
+            # Generated junk that slipped in before the guard existed, or via
+            # a clone: don't offer an editor for it, and don't let a rename
+            # target collide with it either.
+            if entry.name in JUNK_DIR_NAMES or entry.name in JUNK_FILE_NAMES:
+                continue
+            if entry.name.lower().endswith(JUNK_FILE_SUFFIXES):
                 continue
             # Anything reached only through a symlinked directory would
             # otherwise be listed as if it lived here.
@@ -416,6 +469,15 @@ def _reject_unsafe_members(names: list[str]) -> None:
         parts = Path(name).parts
         if name.startswith("/") or name.startswith("\\") or ".." in parts:
             raise FileValidationError(f"архив содержит недопустимый путь: {name}")
+        # Checked here as well as in `_resolve` so the error names the archive
+        # member — "«__pycache__» ..." is confusing when it came from a zip the
+        # user didn't know contained one.
+        for part in parts:
+            if part in JUNK_DIR_NAMES:
+                raise FileValidationError(
+                    f"в архиве есть «{part}» ({name}) — кэш и чекпоинты "
+                    "в репозиторий не загружаются; пересоберите архив без них"
+                )
 
 
 def _common_root_dir(infos: list[zipfile.ZipInfo]) -> str:

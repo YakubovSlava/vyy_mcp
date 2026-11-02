@@ -344,3 +344,55 @@ def test_rename_cannot_escape_the_repo(repo, tmp_path):
     with pytest.raises(FileValidationError):
         rename_path(repo, "a.txt", "../../escaped.txt")
     assert not (tmp_path / "escaped.txt").exists()
+
+
+# --------------------------------------------------------------------------
+# generated files are refused anywhere in the tree
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "__pycache__/x.pyc",
+        "src/__pycache__/x.pyc",
+        "tools_zone/__pycache__/x.pyc",
+        ".ipynb_checkpoints/n-checkpoint.ipynb",
+        "notes/.ipynb_checkpoints/n-checkpoint.ipynb",
+        ".pytest_cache/v/lastfailed",
+        ".venv/lib/python3.12/site.py",
+        "node_modules/x/index.js",
+        "stale.pyc",
+        "module.pyo",
+        ".DS_Store",
+    ],
+)
+def test_generated_paths_are_refused_everywhere(repo, relative):
+    """At any depth, not just the root: a skill folder grows __pycache__ as
+    readily as the repo root collects checkpoints."""
+    with pytest.raises(FileValidationError):
+        write_file(repo, relative, "x")
+
+
+def test_a_notebook_itself_is_not_refused(repo):
+    """Only checkpoints are generated junk; a hand-written notebook is a
+    legitimate file."""
+    write_file(repo, "report.ipynb", "{}")
+    assert (repo / "report.ipynb").read_text() == "{}"
+
+
+def test_existing_junk_is_hidden_from_the_listing(repo):
+    (repo / "__pycache__").mkdir()
+    (repo / "__pycache__" / "z.pyc").write_bytes(b"x")
+    (repo / "keep.md").write_text("x")
+    paths = {f.path for f in list_files(repo)}
+    assert "keep.md" in paths
+    assert not any("__pycache__" in p for p in paths)
+
+
+def test_archive_containing_caches_is_rejected_with_a_named_member(repo, tmp_path):
+    archive = _zip(tmp_path, {"docs/a.md": b"x", "docs/__pycache__/a.cpython-312.pyc": b"x"})
+    with pytest.raises(FileValidationError, match="__pycache__"):
+        install_archive(repo, archive, overwrite=True)
+    # Nothing half-written.
+    assert not (repo / "docs").exists()

@@ -42,7 +42,15 @@ DEFAULT_INSTRUCTIONS = (
     "Some tools return files instead of an answer, meant for the human to "
     "save and run under their own account (the response has a `files` "
     "list). Those are not a server-side action: hand them to the user, "
-    "don't claim they were run."
+    "don't claim they were run.\n"
+    "\n"
+    "Never create or write, anywhere in the shared repository or a "
+    "skill: `.ipynb` notebooks, `.ipynb_checkpoints/`, `__pycache__/`, "
+    "`.pyc`/`.pyo` bytecode, `.pytest_cache/`, virtualenvs or other "
+    "generated caches. They are refused by the server and would only "
+    "pollute a repository other people clone. When a skill needs to hand "
+    "a notebook to a human, return its JSON text as a `files` entry "
+    "instead of writing a file."
 )
 
 

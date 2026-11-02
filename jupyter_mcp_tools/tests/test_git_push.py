@@ -134,3 +134,90 @@ def test_run_under_pty_reports_nonzero_exit(tmp_path):
         [sys.executable, str(script)], cwd=tmp_path, username="alice", password="s3cret"
     )
     assert error is not None
+
+
+# --------------------------------------------------------------------------
+# generated files must never be committed
+# --------------------------------------------------------------------------
+
+
+def test_bytecode_created_by_a_skill_call_is_not_committed(tmp_path):
+    """Importing a skill makes CPython write __pycache__ *inside the skill's
+    folder*, which lives in the repo. A plain `git add -A` swept that bytecode
+    into the commit and from there into every clone."""
+    bare, clone = _init_repo_with_remote(tmp_path)
+    (clone / "tools" / "x").mkdir(parents=True)
+    (clone / "tools" / "x" / "tool.py").write_text('def x() -> str:\n    """D."""\n    return "x"\n')
+    (clone / "tools" / "x" / "__pycache__").mkdir()
+    (clone / "tools" / "x" / "__pycache__" / "tool.cpython-312.pyc").write_bytes(b"bytecode")
+
+    assert push_shared_dir(clone, username="x", password="y", commit_message="push") is None
+
+    tree = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", "HEAD"],
+        cwd=bare, capture_output=True, text=True, check=True,
+    ).stdout
+    assert "__pycache__" not in tree
+    assert not any(line.endswith((".pyc", ".pyo")) for line in tree.splitlines())
+    # ...while the actual skill still lands.
+    assert "tools/x/tool.py" in tree
+
+
+def test_notebook_checkpoints_and_caches_are_not_committed(tmp_path):
+    bare, clone = _init_repo_with_remote(tmp_path)
+    for relative in (
+        ".ipynb_checkpoints/report-checkpoint.ipynb",
+        ".pytest_cache/v/cache/lastfailed",
+        "tools/y/.ipynb_checkpoints/x-checkpoint.ipynb",
+    ):
+        path = clone / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}")
+
+    assert push_shared_dir(clone, username="x", password="y", commit_message="push") is None
+
+    tree = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", "HEAD"],
+        cwd=bare, capture_output=True, text=True, check=True,
+    ).stdout
+    assert ".ipynb_checkpoints" not in tree
+    assert ".pytest_cache" not in tree
+
+
+def test_already_tracked_bytecode_is_removed_from_the_index(tmp_path):
+    """`.gitignore` can't fix this: a file that is already tracked stays
+    tracked. Without an explicit index removal, bytecode shipped by an earlier
+    push would stay in the repo forever."""
+    bare, clone = _init_repo_with_remote(tmp_path)
+    junk = clone / "tools" / "x" / "__pycache__" / "tool.pyc"
+    junk.parent.mkdir(parents=True)
+    (clone / "tools" / "x" / "tool.py").write_text("x = 1\n")
+    junk.write_bytes(b"stale")
+    _run("git", "add", "-A", cwd=clone)
+    _run("git", "commit", "-q", "-m", "tracked junk", cwd=clone)
+    _run("git", "push", "-q", "origin", "HEAD", cwd=clone)
+
+    assert push_shared_dir(clone, username="x", password="y", commit_message="clean") is None
+
+    tree = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", "HEAD"],
+        cwd=bare, capture_output=True, text=True, check=True,
+    ).stdout
+    assert ".pyc" not in tree
+    # The working copy is untouched -- only the index entry goes.
+    assert junk.exists()
+
+
+def test_gitignore_rules_are_appended_once_and_preserve_the_existing_file(tmp_path):
+    _bare, clone = _init_repo_with_remote(tmp_path)
+    (clone / ".gitignore").write_text("# mine\ncustom-thing/\n")
+
+    assert push_shared_dir(clone, username="x", password="y", commit_message="first") is None
+    content = (clone / ".gitignore").read_text()
+    assert "custom-thing/" in content  # admin's own rule survives
+    assert "__pycache__/" in content
+    assert ".ipynb_checkpoints/" in content
+
+    # Second push must not duplicate the block.
+    assert push_shared_dir(clone, username="x", password="y", commit_message="second") is None
+    assert (clone / ".gitignore").read_text().count("__pycache__/") == 1

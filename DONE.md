@@ -2385,3 +2385,43 @@
   skill_builder as `[read]`), a real `create_skill` call through MCP installed
   a skill that the next sync picked up, and deleting either folder makes it
   come back. Full suite: 388/388.
+
+## 2026-11-02 (generated files can never reach the shared repo)
+
+- Per request: the agent must never save `.ipynb` files or caches. Investigated
+  before deciding anything, and found the real leak: **importing a skill makes
+  CPython write `__pycache__/*.pyc` inside that skill's own folder**, which
+  lives in the shared repo. A plain `git add -A` then shipped compiled
+  bytecode into the commit — reproduced end to end: one skill call followed by
+  a push put `tools/make_quiz/__pycache__/tool.cpython-312.pyc` in the remote.
+  Confirmed the same file was already present in this deployment's live repo.
+- Fixed in three layers, because no single one covers it:
+  1. **`git_push`** now appends ignore rules (idempotently, never rewriting an
+     admin's own `.gitignore`) *and* explicitly removes already-tracked
+     generated files from the index. The second part matters: `.gitignore`
+     cannot untrack a file that is already committed, so bytecode shipped by
+     the first push would otherwise stay in the repo forever. Verified both
+     paths: junk is absent from the remote, the skill file is present, and the
+     working copy is untouched (index-only removal).
+  2. **`repo_files`** refuses these paths at *any* depth via `_resolve`, so
+     every operation inherits it — upload, edit, rename, delete, read — rather
+     than each route remembering to check. Archives containing them are
+     rejected up front with the offending member named, so the message isn't
+     a bare "«__pycache__»" when it came from a zip.
+  3. **`DEFAULT_INSTRUCTIONS`** tells the agent plainly: never write
+     notebooks, checkpoints, bytecode or caches; return notebook JSON as a
+     `files` entry instead of writing a file. That's the only layer that can
+     stop a *skill's own code* from writing junk, which no path guard can see.
+- Deliberate distinction: a notebook itself (`notes.ipynb`) is allowed — only
+  `.ipynb_checkpoints/` is junk. Banning the format outright would be wrong;
+  banning what Jupyter silently generates is the point.
+- Confirmed the guards don't break normal operation: the MCP server still
+  loads and executes `create_skill` from a folder that *has* a `__pycache__`
+  (the cache keeps appearing — that's CPython, not us — it just can't be
+  committed any more). Cleaned the existing junk out of this deployment's live
+  repo and out of the project checkout.
+- 18 new tests: bytecode/checkpoint/cache paths refused at several depths,
+  a real notebook still allowed, existing junk hidden from the listing,
+  archive rejection naming the member, plus four push-level tests covering
+  the commit, the already-tracked case, and the `.gitignore` append being
+  idempotent and non-destructive. Full suite: 406/406.

@@ -880,6 +880,15 @@ push` runs in that directory after every **install**, **delete**, and
   (folders remember their state across reloads). Each change is committed
   and pushed the same way a skill install is.
 
+  **Generated files are refused everywhere in the tree** — `__pycache__/`,
+  `*.pyc`/`*.pyo`, `.ipynb_checkpoints/`, `.pytest_cache/`, virtualenvs,
+  `node_modules/`, `.DS_Store`. Importing a skill makes CPython write
+  `__pycache__` *inside that skill's folder*, which is inside the repo; left
+  alone it gets swept into the commit and cloned out to everyone. Archives
+  containing any of these are rejected with the offending member named. A
+  notebook itself (`notes.ipynb`) is still a normal file — only its
+  checkpoints are junk.
+
   Four things are untouchable from that tab, each because the app itself
   owns them:
 
