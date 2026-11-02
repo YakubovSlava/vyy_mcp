@@ -2425,3 +2425,28 @@
   archive rejection naming the member, plus four push-level tests covering
   the commit, the already-tracked case, and the `.gitignore` append being
   idempotent and non-destructive. Full suite: 406/406.
+
+## 2026-11-02 (stop creating the bytecode at all, not just filtering it)
+
+- Follow-up to the previous commit. That one filtered generated files out at
+  push time and refused them through the UI — a safety net. The actual cause
+  was still live: `load_entrypoint()` imported a skill normally, so CPython
+  kept writing `__pycache__/` *inside the skill's folder* on every server
+  sync, i.e. into the shared repo.
+- `load_entrypoint` now sets `sys.dont_write_bytecode` around the import (and
+  restores it afterwards, so nothing else in the process changes). Verified
+  directly: loading and executing a skill now leaves no `__pycache__` and no
+  `.pyc` anywhere under the repo, and the call still returns correctly.
+- Why this is better than filtering: with nothing created there's nothing to
+  ignore, nothing to leak, and no stale `.pyc` that a later import could
+  prefer over updated source after a skill is edited. The push-side filter
+  stays as a second line of defence for junk that arrives some other way
+  (a hand-run test, a clone of an older repo).
+- Also cleared the accumulated junk out of this deployment's live repo and
+  the project checkout, and confirmed `git` tracks none of it: every such path
+  is already covered by `.gitignore`, so no repository content changed.
+- Verified end to end with both processes restarted on the new code: a real
+  `create_skill` call through MCP succeeds, and the skill directory is still
+  clean afterwards — the cache doesn't come back at all now.
+- 1 new test asserts an executed skill leaves no `__pycache__`/`*.pyc` behind.
+  Full suite: 407/407.

@@ -29,7 +29,19 @@ def load_entrypoint(shared_dir: Path, manifest: Manifest) -> Callable[..., Any]:
     module = importlib.util.module_from_spec(spec)
     sys.modules[unique_name] = module
     try:
-        spec.loader.exec_module(module)
+        # Suppress bytecode writing for this import. Loading a skill would
+        # otherwise make CPython drop `__pycache__/` *inside the skill's own
+        # folder* -- which lives in the shared git repo, so it gets committed
+        # and cloned out to everyone (see common/git_push.py). The push step
+        # also filters it out, but not creating it is the better fix: nothing
+        # to ignore, nothing to leak, and no stale `.pyc` that a later import
+        # could prefer over updated source.
+        previous = sys.dont_write_bytecode
+        sys.dont_write_bytecode = True
+        try:
+            spec.loader.exec_module(module)
+        finally:
+            sys.dont_write_bytecode = previous
     finally:
         sys.modules.pop(unique_name, None)
 

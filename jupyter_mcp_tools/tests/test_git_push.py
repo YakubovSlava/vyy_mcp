@@ -221,3 +221,23 @@ def test_gitignore_rules_are_appended_once_and_preserve_the_existing_file(tmp_pa
     # Second push must not duplicate the block.
     assert push_shared_dir(clone, username="x", password="y", commit_message="second") is None
     assert (clone / ".gitignore").read_text().count("__pycache__/") == 1
+
+
+def test_loading_a_skill_does_not_write_bytecode_into_the_repo(tmp_path):
+    """The root cause, not just the symptom: loading a skill used to make
+    CPython drop __pycache__ inside the skill's own folder, which lives in the
+    shared repo. Filtering it at push time is a safety net; not creating it is
+    the fix."""
+    from jupyter_mcp_tools.common import registry
+    from jupyter_mcp_tools.common.loader import load_entrypoint
+
+    shared = tmp_path / "shared"
+    (shared / "tools" / "zzz").mkdir(parents=True)
+    (shared / "tools" / "zzz" / "tool.py").write_text(
+        'def zzz(text: str) -> str:\n    """Echoes."""\n    return text\n'
+    )
+
+    fn = load_entrypoint(shared, registry.list_tools(shared)[0])
+    assert fn("ok") == "ok"
+    assert not (shared / "tools" / "zzz" / "__pycache__").exists()
+    assert list(shared.rglob("*.pyc")) == []
