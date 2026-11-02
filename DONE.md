@@ -2192,3 +2192,41 @@
 - Verified through a real MCP session: a skill with a broken sibling import
   was rejected with the actionable message, `verify_only` left the shared
   directory untouched, and a function without a docstring was refused.
+
+## 2026-11-02 (child relay caught up: Files tab, and a byte-exactness bug in curl)
+
+- Per request: the child-admin relay had fallen behind the main host. It
+  could list/upload/delete skills and manage groups, but the **Файлы** tab
+  (added later) 404'd on a relay, so a child admin couldn't touch repo files
+  at all. It now mirrors them the same way it mirrors skills.
+- Added the missing JSON API the relay needs: `GET/POST /api/files`,
+  `/api/files/save`, `/api/files/delete`, `/api/files/raw`,
+  `/api/files/download`. The HTML routes on a relay forward through them, so
+  there is one behaviour rather than two implementations that can drift.
+  Status codes are preserved on the way back (a 400 "already exists" must
+  not look like a 200 or a 502), and uploads/downloads spool through a temp
+  file rather than being buffered whole in memory.
+- The relay delegates all path rules to the main host by construction: it
+  never resolves a path itself, so `tools/`, `.git/`, `groups.json` and
+  `launcher/` stay refused and a relay cannot loosen them.
+- `Файлы` is now in the relay's nav; `Пользователи` and `Документация` stay
+  hidden, since neither means anything on a relay (users are tracked by the
+  main host, and the docs page describes a shared directory this instance
+  doesn't own).
+- **Found a real data-corruption bug while testing the relay**: files edited
+  through a child lost their trailing newline. Root cause is `curl -F
+  name=value`, which silently strips one trailing newline from the value —
+  so every content round trip through a relay truncated the file by one
+  byte. Fixed in `common/curl_client.py` by spooling each field value to a
+  temp file and sending it with `-F name=<file`, which is byte-exact and
+  also sidesteps `-F`'s special handling of `;`, `@` and a leading `<`.
+  Temps are removed in a `finally`.
+- 4 tests in the new `test_curl_client.py` pin that (trailing newline,
+  multiple newlines, metacharacters, temp cleanup), plus 6 relay tests in
+  `test_remote_mode.py` covering the full Files round trip through a real
+  main-host subprocess: upload → list → edit → raw read → download →
+  delete, reserved paths still refused, and the relay's own JSON API.
+- Verified end to end against a real main-host `uvicorn` subprocess and an
+  in-process relay: nav correct, 2 files uploaded, edit byte-exact
+  (`'# правка\n'`), `tools/` refused, binary download intact, delete
+  propagated. Full suite: 343/343.

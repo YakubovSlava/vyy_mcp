@@ -235,6 +235,102 @@ def _reject_builtin(name: str, request: Request):
     return None
 
 
+def _remote_list_files() -> tuple[list[dict], str | None]:
+    try:
+        resp = curl_client.get(f"{MAIN_HOST}/api/files", CHILD_USER, CHILD_PASSWORD, insecure=INSECURE_TLS)
+    except curl_client.CurlError as exc:
+        return [], f"Could not reach main host: {exc}"
+    if resp.status == 401:
+        return [], "Main host rejected these credentials (401)."
+    if resp.status != 200:
+        return [], f"Main host returned HTTP {resp.status}."
+    try:
+        return json.loads(resp.text), None
+    except json.JSONDecodeError:
+        return [], "Main host returned a response that wasn't valid JSON."
+
+
+def _forward_post(path: str, fields: dict[str, str]):
+    """POST to the main host's JSON API and hand its answer straight back.
+
+    Status codes are preserved rather than collapsed to 200/500: a child
+    admin has to see "already exists" (409/400) differently from "the host
+    is down", and the page renders the error text from the body.
+    """
+    try:
+        resp = curl_client.post(
+            f"{MAIN_HOST}{path}", CHILD_USER, CHILD_PASSWORD, fields=fields, insecure=INSECURE_TLS
+        )
+    except curl_client.CurlError as exc:
+        return JSONResponse(status_code=502, content={"error": f"Could not reach main host: {exc}"})
+    try:
+        payload = json.loads(resp.text) if resp.text.strip() else {}
+    except json.JSONDecodeError:
+        payload = {"error": resp.text}
+    return JSONResponse(status_code=resp.status, content=payload)
+
+
+def _forward_upload(api_path: str, archive, fields: dict[str, str]):
+    """Multipart upload through the relay.
+
+    Spooled to a temp file first: `curl` needs a real path (`-F name=@file`),
+    and the child must not hold the whole archive in memory just to forward
+    it.
+    """
+    import tempfile as _tempfile
+
+    with _tempfile.TemporaryDirectory() as tmp:
+        archive_path = Path(tmp) / "upload.zip"
+        archive_path.write_bytes(archive.file.read())
+        try:
+            resp = curl_client.post(
+                f"{MAIN_HOST}{api_path}",
+                CHILD_USER,
+                CHILD_PASSWORD,
+                fields=fields,
+                files={"archive": str(archive_path)},
+                insecure=INSECURE_TLS,
+            )
+        except curl_client.CurlError as exc:
+            return JSONResponse(status_code=502, content={"error": f"Could not reach main host: {exc}"})
+    try:
+        payload = json.loads(resp.text) if resp.text.strip() else {}
+    except json.JSONDecodeError:
+        payload = {"error": resp.text}
+    return JSONResponse(status_code=resp.status, content=payload)
+
+
+def _forward_download(api_path: str, params: dict[str, str], *, filename: str):
+    """Stream a binary file from the main host to the child's browser."""
+    import tempfile as _tempfile
+
+    if not filename or "/" in filename or "\\" in filename:
+        filename = "download.bin"
+    with _tempfile.TemporaryDirectory() as tmp:
+        dest = Path(tmp) / "payload.bin"
+        try:
+            status = curl_client.download(
+                f"{MAIN_HOST}{api_path}?{urlencode(params)}",
+                CHILD_USER,
+                CHILD_PASSWORD,
+                dest,
+                insecure=INSECURE_TLS,
+            )
+        except curl_client.CurlError as exc:
+            raise HTTPException(status_code=502, detail=f"Could not reach main host: {exc}") from exc
+        if status != 200:
+            raise HTTPException(status_code=status, detail=dest.read_text(errors="replace"))
+        payload = dest.read_bytes()
+
+    from starlette.responses import Response
+
+    return Response(
+        payload,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 def _remote_list_tools() -> tuple[list[dict], str | None]:
     try:
         resp = curl_client.get(f"{MAIN_HOST}/api/tools", CHILD_USER, CHILD_PASSWORD, insecure=INSECURE_TLS)
@@ -386,6 +482,22 @@ def _render_files(request: Request, **extra):
     Main host only: a child relay has no local shared directory of its own
     to list files from, same reasoning as Users/Docs.
     """
+    if MAIN_HOST:
+        files, remote_error = _remote_list_files()
+        return templates.TemplateResponse(
+            request,
+            "files.html",
+            {
+                "remote": True,
+                "read_only": READ_ONLY,
+                "active_page": "files",
+                "shared_dir": MAIN_HOST,
+                "tree": files,
+                "message": extra.get("message"),
+                "error": extra.get("error") or remote_error,
+            },
+        )
+
     config = load_config()
     shared_dir = config.shared_dir_path
     shared_dir.mkdir(parents=True, exist_ok=True)
@@ -393,7 +505,7 @@ def _render_files(request: Request, **extra):
         request,
         "files.html",
         {
-            "remote": bool(MAIN_HOST),
+            "remote": False,
             "read_only": READ_ONLY,
             "active_page": "files",
             "shared_dir": str(shared_dir),
@@ -643,8 +755,6 @@ def files_page(
     error: str | None = None,
     _admin: str | None = Depends(require_admin_page),
 ):
-    if MAIN_HOST:
-        raise HTTPException(status_code=404, detail="Not found")
     return _render_files(request, message=message, error=error)
 
 
@@ -657,7 +767,15 @@ async def upload_files(
 ):
     """Unpacks an uploaded zip into the repo root as ordinary files."""
     if MAIN_HOST:
-        raise HTTPException(status_code=403, detail="Managed on the main host only.")
+        result = _forward_upload("/api/files", archive, {"overwrite": overwrite or ""})
+        body = json.loads(result.body)
+        if result.status_code != 200:
+            return _redirect_to_files(request, error=body.get("error", "основной хост отклонил загрузку"))
+        written = body.get("written") or []
+        message = f"Загружено файлов: {len(written)}."
+        if body.get("git_push_error"):
+            return _redirect_to_files(request, error=f"{message} Внимание: git push не выполнен ({body['git_push_error']}).")
+        return _redirect_to_files(request, message=message)
     if READ_ONLY:
         return _redirect_to_files(request, error=READ_ONLY_MESSAGE)
 
@@ -687,7 +805,14 @@ def save_file(
     _admin: str | None = Depends(require_admin_page),
 ):
     if MAIN_HOST:
-        raise HTTPException(status_code=403, detail="Managed on the main host only.")
+        result = _forward_post("/api/files/save", {"path": path, "content": content})
+        body = json.loads(result.body)
+        if result.status_code != 200:
+            return _redirect_to_files(request, error=body.get("error", "основной хост отклонил сохранение"))
+        message = f"Файл «{path}» сохранён."
+        if body.get("git_push_error"):
+            return _redirect_to_files(request, error=f"{message} Внимание: git push не выполнен ({body['git_push_error']}).")
+        return _redirect_to_files(request, message=message)
     if READ_ONLY:
         return _redirect_to_files(request, error=READ_ONLY_MESSAGE)
 
@@ -711,7 +836,14 @@ def delete_file(
     _admin: str | None = Depends(require_admin_page),
 ):
     if MAIN_HOST:
-        raise HTTPException(status_code=403, detail="Managed on the main host only.")
+        result = _forward_post("/api/files/delete", {"path": path})
+        body = json.loads(result.body)
+        if result.status_code != 200:
+            return _redirect_to_files(request, error=body.get("error", "основной хост отклонил удаление"))
+        message = f"Файл «{path}» удалён."
+        if body.get("git_push_error"):
+            return _redirect_to_files(request, error=f"{message} Внимание: git push не выполнен ({body['git_push_error']}).")
+        return _redirect_to_files(request, message=message)
     if READ_ONLY:
         return _redirect_to_files(request, error=READ_ONLY_MESSAGE)
 
@@ -735,7 +867,13 @@ def raw_file(
 ):
     """Plain-text contents for the editor dialog (no download headers)."""
     if MAIN_HOST:
-        raise HTTPException(status_code=404, detail="Not found")
+        resp = curl_client.get(
+            f"{MAIN_HOST}/api/files/raw?{urlencode({'path': path})}",
+            CHILD_USER, CHILD_PASSWORD, insecure=INSECURE_TLS,
+        )
+        if resp.status != 200:
+            raise HTTPException(status_code=resp.status, detail=resp.text)
+        return PlainTextResponse(resp.text)
     shared_dir = load_config().shared_dir_path
     try:
         return PlainTextResponse(repo_files.read_file(shared_dir, path))
@@ -751,7 +889,7 @@ def download_file(
     """Serves a single file back, including binaries — the page lists them
     but can't edit them, so there has to be some way to get them out."""
     if MAIN_HOST:
-        raise HTTPException(status_code=404, detail="Not found")
+        return _forward_download("/api/files/download", {"path": path}, filename=Path(path).name)
     shared_dir = load_config().shared_dir_path
     try:
         target = repo_files.read_file_path(shared_dir, path)
@@ -1185,6 +1323,136 @@ def api_edit_doc_skill_description(
         return JSONResponse(status_code=400, content={"error": str(exc)})
     push_error = _maybe_git_push(config, shared_dir, f"Edit skill '{name}' description")
     return {"name": name, "git_push_error": push_error}
+
+
+@app.get("/api/files")
+def api_list_files(_admin: str | None = Depends(require_admin_api)):
+    """Repo files, for a child relay to mirror the Files tab.
+
+    Exposes only what the page needs (path/name/depth/size/flags) — the
+    built-in dataclass is richer than a JSON contract should be, and keeping
+    the shape explicit here means the relay can't silently depend on an
+    internal field.
+    """
+    if MAIN_HOST:
+        files, error = _remote_list_files()
+        if error:
+            raise HTTPException(status_code=502, detail=error)
+        return files
+    shared_dir = load_config().shared_dir_path
+    return [
+        {
+            "path": f.path,
+            "name": f.name,
+            "depth": f.depth,
+            "size": f.size,
+            "is_dir": f.is_dir,
+            "editable": f.editable,
+            "child_count": f.child_count,
+        }
+        for f in repo_files.list_files(shared_dir)
+    ]
+
+
+@app.post("/api/files")
+async def api_upload_files(
+    archive: UploadFile = File(...),
+    overwrite: str | None = Form(None),
+    _admin: str | None = Depends(require_admin_api),
+):
+    if MAIN_HOST:
+        return _forward_upload("/api/files", archive, {"overwrite": overwrite or ""})
+    if READ_ONLY:
+        return JSONResponse(status_code=403, content={"error": READ_ONLY_MESSAGE})
+
+    shared_dir = load_config().shared_dir_path
+    with tempfile.TemporaryDirectory() as tmp:
+        archive_path = Path(tmp) / "upload.zip"
+        archive_path.write_bytes(await archive.read())
+        try:
+            written = repo_files.install_archive(shared_dir, archive_path, overwrite=bool(overwrite))
+        except repo_files.FileValidationError as exc:
+            return JSONResponse(status_code=400, content={"error": str(exc)})
+
+    push_error = _maybe_git_push(load_config(), shared_dir, f"Upload files ({len(written)})")
+    return {"written": written, "git_push_error": push_error}
+
+
+@app.post("/api/files/save")
+def api_save_file(
+    path: str = Form(...),
+    content: str = Form(""),
+    _admin: str | None = Depends(require_admin_api),
+):
+    if MAIN_HOST:
+        resp = _forward_post("/api/files/save", {"path": path, "content": content})
+        return resp
+    if READ_ONLY:
+        return JSONResponse(status_code=403, content={"error": READ_ONLY_MESSAGE})
+
+    shared_dir = load_config().shared_dir_path
+    try:
+        repo_files.write_file(shared_dir, path, content)
+    except repo_files.FileValidationError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+
+    push_error = _maybe_git_push(load_config(), shared_dir, f"Edit file '{path}'")
+    return {"path": path, "git_push_error": push_error}
+
+
+@app.post("/api/files/delete")
+def api_delete_file(
+    path: str = Form(...),
+    _admin: str | None = Depends(require_admin_api),
+):
+    if MAIN_HOST:
+        return _forward_post("/api/files/delete", {"path": path})
+    if READ_ONLY:
+        return JSONResponse(status_code=403, content={"error": READ_ONLY_MESSAGE})
+
+    shared_dir = load_config().shared_dir_path
+    try:
+        repo_files.delete_path(shared_dir, path)
+    except repo_files.FileValidationError as exc:
+        return JSONResponse(status_code=404, content={"error": str(exc)})
+
+    push_error = _maybe_git_push(load_config(), shared_dir, f"Delete file '{path}'")
+    return {"path": path, "git_push_error": push_error}
+
+
+@app.get("/api/files/raw")
+def api_raw_file(
+    path: str,
+    _admin: str | None = Depends(require_admin_api),
+):
+    if MAIN_HOST:
+        resp = curl_client.get(
+            f"{MAIN_HOST}/api/files/raw?{urlencode({'path': path})}",
+            CHILD_USER, CHILD_PASSWORD, insecure=INSECURE_TLS,
+        )
+        if resp.status != 200:
+            raise HTTPException(status_code=resp.status, detail=resp.text)
+        return PlainTextResponse(resp.text)
+    shared_dir = load_config().shared_dir_path
+    try:
+        return PlainTextResponse(repo_files.read_file(shared_dir, path))
+    except repo_files.FileValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/files/download")
+def api_download_file(
+    path: str,
+    _admin: str | None = Depends(require_admin_api),
+):
+    if MAIN_HOST:
+        return _forward_download("/api/files/download", {"path": path}, filename=Path(path).name)
+    shared_dir = load_config().shared_dir_path
+    try:
+        target = repo_files.read_file_path(shared_dir, path)
+    except repo_files.FileValidationError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileResponse(target, filename=target.name)
 
 
 @app.get("/api/groups")

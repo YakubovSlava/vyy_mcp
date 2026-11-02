@@ -213,3 +213,80 @@ def test_child_relay_groups_page_has_no_users_docs_links(child_client):
     r = child_client.get("/groups")
     assert r.status_code == 200
     assert 'href="users"' not in r.text
+
+
+# --------------------------------------------------------------------------
+# Files tab through the relay
+# --------------------------------------------------------------------------
+
+
+def _files_zip(tmp_path, entries):
+    path = tmp_path / "files.zip"
+    with zipfile.ZipFile(path, "w") as zf:
+        for name, payload in entries.items():
+            zf.writestr(name, payload)
+    return path.read_bytes()
+
+
+def test_child_relay_files_page_lists_main_hosts_files(child_client, tmp_path):
+    child_client.post(
+        "/files/upload", files={"archive": ("f.zip", _files_zip(tmp_path, {"notes.md": b"# hi\n"}), "application/zip")}
+    )
+    r = child_client.get("/files")
+    assert r.status_code == 200
+    assert "notes.md" in r.text
+    # The page exists on the relay now instead of 404ing.
+    assert 'href="files"' in child_client.get("/").text
+
+
+def test_child_relay_file_upload_save_delete_round_trip(child_client, tmp_path):
+    payload = _files_zip(tmp_path, {"docs/a.md": b"# a\n"})
+    r = child_client.post("/files/upload", files={"archive": ("f.zip", payload, "application/zip")})
+    assert "Загружено файлов" in r.text
+
+    r = child_client.get("/files")
+    assert "docs/a.md" in r.text
+
+    r = child_client.post("/files/save", data={"path": "docs/a.md", "content": "# edited\n"})
+    assert "сохранён" in r.text
+    assert "# edited" in child_client.get("/files/raw", params={"path": "docs/a.md"}).text
+
+    r = child_client.post("/files/delete", data={"path": "docs/a.md"})
+    assert "удалён" in r.text
+    assert "docs/a.md" not in child_client.get("/files").text
+
+
+def test_child_relay_cannot_touch_tools_via_files(child_client, tmp_path):
+    """The reserved-path guard runs on the *main* host, so a relay can't get
+    around it by going through its own (weaker) route."""
+    payload = _files_zip(tmp_path, {"tools/evil/tool.py": b"def evil(): pass\n"})
+    r = child_client.post(
+        "/files/upload",
+        files={"archive": ("f.zip", payload, "application/zip")},
+        data={"overwrite": "1"},
+    )
+    assert "служебная папка" in r.text
+
+
+def test_child_relay_file_download_serves_bytes(child_client, tmp_path):
+    payload = _files_zip(tmp_path, {"logo.png": b"\x89PNG\x00binary"})
+    child_client.post("/files/upload", files={"archive": ("f.zip", payload, "application/zip")})
+
+    r = child_client.get("/files/download", params={"path": "logo.png"})
+    assert r.status_code == 200
+    assert r.content == b"\x89PNG\x00binary"
+
+
+def test_child_relay_files_api_parity(child_client, tmp_path):
+    """The relay's own /api/files must forward too — it's what another relay
+    or a script would call."""
+    payload = _files_zip(tmp_path, {"x.txt": b"one\n"})
+    child_client.post("/files/upload", files={"archive": ("f.zip", payload, "application/zip")})
+
+    r = child_client.get("/api/files", auth=("alice", "s3cret"))
+    assert r.status_code == 200
+    assert any(f["path"] == "x.txt" for f in r.json())
+
+    r = child_client.post("/api/files/save", auth=("alice", "s3cret"), data={"path": "x.txt", "content": "two\n"})
+    assert r.status_code == 200
+    assert child_client.get("/files/raw", params={"path": "x.txt"}).text == "two\n"

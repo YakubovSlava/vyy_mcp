@@ -7,7 +7,9 @@ visible/auditable the same way a human running `curl` by hand would be.
 """
 from __future__ import annotations
 
+import contextlib
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -103,11 +105,28 @@ def post(
     `fields` are plain form values; `files` maps a form field name to a
     local filesystem path whose contents should be uploaded under that
     field (curl's `-F name=@path`).
+
+    Values are sent as `-F name=<path` (read from a file) rather than
+    `-F name=value`. That is not a detail: with the inline form, curl
+    **strips a trailing newline** from the value, so forwarding a file whose
+    content legitimately ends in "\\n" silently truncated it by one byte on
+    every hop through a child relay. Reading the value from a file is
+    byte-exact, and it also sidesteps `-F`'s special characters (`;`, `@`,
+    leading `<`).
     """
     cmd = _base_cmd(user, password, insecure) + ["-X", "POST"]
-    for key, value in (fields or {}).items():
-        cmd += ["-F", f"{key}={value}"]
-    for key, path in (files or {}).items():
-        cmd += ["-F", f"{key}=@{path}"]
-    cmd.append(url)
-    return _run(cmd, timeout)
+    temp_files: list[Path] = []
+    try:
+        for key, value in (fields or {}).items():
+            value_path = Path(tempfile.mkstemp(prefix="curlfield-")[1])
+            value_path.write_bytes(value.encode("utf-8"))
+            temp_files.append(value_path)
+            cmd += ["-F", f"{key}=<{value_path}"]
+        for key, path in (files or {}).items():
+            cmd += ["-F", f"{key}=@{path}"]
+        cmd.append(url)
+        return _run(cmd, timeout)
+    finally:
+        for path in temp_files:
+            with contextlib.suppress(OSError):
+                path.unlink()

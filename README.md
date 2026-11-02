@@ -191,13 +191,21 @@ host's instance, see "Open the admin UI from JupyterLab" above), but:
 - There's **no local login** for this instance — reaching it at all already
   means you're logged into your own Jupyter server, which is the trust
   boundary on this side.
-- Every button in the UI (list/upload/remove skills) shells out to the
-  real `curl` binary against the main host's JSON API
-  (`<main-host>/api/tools`), authenticated with the username/password you
-  were given. **All main↔child communication goes over `curl`** by
-  design — see `common/curl_client.py` and PLAN.md — so what the relay does
-  is exactly what running `curl` by hand would do, nothing hidden in a
-  library.
+- Every button in the UI (list/upload/remove skills, groups, and everything
+  on the **Файлы** tab) shells out to the real `curl` binary against the main
+  host's JSON API, authenticated with the username/password you were given.
+  **All main↔child communication goes over `curl`** by design — see
+  `common/curl_client.py` and PLAN.md — so what the relay does is exactly
+  what running `curl` by hand would do, nothing hidden in a library.
+- The relay mirrors the main host rather than keeping any state of its own:
+  skills, groups and repo files all come from `<main-host>/api/…`. The
+  **Файлы** tab works through the relay exactly as it does on the main host
+  — upload, edit, download (binaries included), delete — with every
+  reserved-path rule (`tools/`, `.git/`, `groups.json`, `launcher/`) enforced
+  on the main host, so a relay can't loosen them.
+- The relay exposes no **Пользователи** or **Документация** tab: neither has
+  meaning here — users are tracked by the main host, and the docs page
+  documents a shared directory this instance doesn't have.
 - The "⚙" address button shows the main host's address read-only — you
   can't change where skills get installed from here. Changing the shared
   directory itself is a main-host-only action.

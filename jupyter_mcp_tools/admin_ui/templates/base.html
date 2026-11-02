@@ -432,8 +432,8 @@
       <nav class="tabs">
         <a href="." class="{{ 'active' if active_page == 'skills' else '' }}">Навыки</a>
         <a href="groups" class="{{ 'active' if active_page == 'groups' else '' }}">Группы</a>
-        {% if not remote %}
         <a href="files" class="{{ 'active' if active_page == 'files' else '' }}">Файлы</a>
+        {% if not remote %}
         <a href="users" class="{{ 'active' if active_page == 'users' else '' }}">Пользователи</a>
         <a href="docs" class="{{ 'active' if active_page == 'docs' else '' }}">Документация</a>
         {% endif %}
