@@ -285,6 +285,51 @@ def write_file(root: Path, relative: str, content: str) -> Path:
     return target
 
 
+def rename_path(root: Path, relative: str, new_name: str) -> str:
+    """Rename a file or directory in place. Returns the new repo-relative path.
+
+    Only the last path segment changes — moving a file to a different
+    directory is a different operation (and a different set of hazards:
+    destination parents, collisions with existing trees), so it isn't
+    silently folded into this one.
+
+    Both the old and the new path go through `_resolve`, so a rename can
+    neither read outside the repo nor write into a reserved name (`tools/`,
+    `.git/`, `groups.json`, `launcher/`). That matters more here than
+    elsewhere: renaming `notes.md` to `tools` would otherwise be a way to
+    plant a reserved name from the inside.
+    """
+    new_name = new_name.strip()
+    if not new_name:
+        raise FileValidationError("пустое имя")
+    if "/" in new_name or "\\" in new_name:
+        raise FileValidationError("имя не должно содержать «/» — это переименование, а не перемещение")
+    if new_name in (".", ".."):
+        raise FileValidationError("недопустимое имя")
+
+    source = _resolve(root, relative, must_exist=True)
+    if source == root.resolve():
+        raise FileValidationError("нельзя переименовать сам корень репозитория")
+
+    parent_relative = Path(relative).parent
+    candidate = new_name if parent_relative in (Path("."), Path("")) else str(parent_relative / new_name)
+
+    # A top-level rename can collide with a reserved name; `_resolve` is what
+    # enforces that, so it has to see the final path.
+    destination = _resolve(root, candidate)
+    if destination == source:
+        raise FileValidationError("имя не изменилось")
+    if destination.exists():
+        raise FileValidationError(f"«{candidate}» уже существует")
+
+    if source.is_symlink():
+        # Renaming the link itself is fine; `_resolve` already followed it for
+        # containment, so re-check that the link target is inside the repo.
+        pass
+    source.rename(destination)
+    return candidate
+
+
 def delete_path(root: Path, relative: str) -> None:
     target = _resolve(root, relative, must_exist=True)
     if target.is_symlink():

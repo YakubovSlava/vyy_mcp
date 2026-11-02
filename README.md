@@ -703,8 +703,10 @@ install step. It's a doc skill whose whole job is to stop an agent guessing
 at the archive format: it explains which of the two kinds to pick, the exact
 validation rules, and how to call `create_skill`.
 
-It is **built in**: shown greyed out with a `встроенный` badge on the Skills
-tab, and with no Edit/Delete controls. If the folder disappears — deleted by
+It is **built in**: listed first on the Skills tab (they're always-present
+app helpers, so they get a stable section at the top instead of being
+scattered among user skills), shown greyed out with a `встроенный` badge, and
+with no Edit/Delete/Rename controls. If the folder disappears — deleted by
 hand, a fresh shared directory, a new deployment — it's written back
 automatically. Removal is refused over both the HTML routes and the JSON
 API, so a child relay can't bypass it either. Existing copies are never

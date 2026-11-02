@@ -379,6 +379,27 @@ def _maybe_git_push(config: AppConfig, shared_dir: Path, commit_message: str) ->
     )
 
 
+def _tools_for_display(shared_dir: Path) -> list[dict]:
+    """Skills as the Skills page and the JSON API need them.
+
+    Built-ins come first, then everything else alphabetically. They're
+    app-provided helpers that are always present and never change, so
+    burying them among user skills means scrolling past them every time;
+    pinned to the top they read as a separate, stable section.
+
+    Shared by the page and `/api/tools` so a child relay renders the same
+    order and shows the same `builtin` badge — the badge silently went
+    missing on a relay before, because the API didn't include the flag.
+    """
+    entries = [
+        {**registry.manifest_to_dict(m), "builtin": builtin_skills.is_builtin(m.name)}
+        for m in registry.list_tools(shared_dir)
+    ]
+    # `not x["builtin"]` sorts built-ins first; the name tiebreak keeps the
+    # order stable and predictable within each group.
+    return sorted(entries, key=lambda t: (not t["builtin"], t["name"].lower()))
+
+
 def _render(request: Request, **extra):
     """Renders the Skills page (templates/index.html)."""
     error = extra.get("error")
@@ -400,10 +421,7 @@ def _render(request: Request, **extra):
         # Built-in skills reappear here rather than only in the MCP server,
         # so the admin sees the same list an agent does.
         builtin_skills.ensure_builtin_skills(shared_dir)
-        tools = [
-            {**registry.manifest_to_dict(m), "builtin": builtin_skills.is_builtin(m.name)}
-            for m in registry.list_tools(shared_dir)
-        ]
+        tools = _tools_for_display(shared_dir)
         address_label = str(shared_dir)
         bitbucket_base_url = config.bitbucket_base_url or ""
         git_push_username = config.git_push_username or ""
@@ -829,6 +847,40 @@ def save_file(
     return _redirect_to_files(request, message=message)
 
 
+@app.post("/files/rename")
+def rename_file(
+    request: Request,
+    path: str = Form(...),
+    new_name: str = Form(...),
+    _admin: str | None = Depends(require_admin_page),
+):
+    if READ_ONLY:
+        return _redirect_to_files(request, error=READ_ONLY_MESSAGE)
+
+    if MAIN_HOST:
+        result = _forward_post("/api/files/rename", {"path": path, "new_name": new_name})
+        body = json.loads(result.body)
+        if result.status_code != 200:
+            return _redirect_to_files(request, error=body.get("error", "основной хост отклонил переименование"))
+        message = f"«{path}» переименован в «{body.get('path', new_name)}»."
+        if body.get("git_push_error"):
+            return _redirect_to_files(request, error=f"{message} Внимание: git push не выполнен ({body['git_push_error']}).")
+        return _redirect_to_files(request, message=message)
+
+    config = load_config()
+    shared_dir = config.shared_dir_path
+    try:
+        new_path = repo_files.rename_path(shared_dir, path, new_name)
+    except repo_files.FileValidationError as exc:
+        return _redirect_to_files(request, error=str(exc))
+
+    push_error = _maybe_git_push(config, shared_dir, f"Rename file '{path}' -> '{new_path}'")
+    message = f"«{path}» переименован в «{new_path}»."
+    if push_error:
+        return _redirect_to_files(request, error=f"{message} Внимание: git push не выполнен ({push_error}).")
+    return _redirect_to_files(request, message=message)
+
+
 @app.post("/files/delete")
 def delete_file(
     request: Request,
@@ -1245,7 +1297,7 @@ def api_list_tools(_admin: str | None = Depends(require_admin_api)):
             raise HTTPException(status_code=502, detail=error)
         return tools
     config = load_config()
-    return [registry.manifest_to_dict(m) for m in registry.list_tools(config.shared_dir_path)]
+    return _tools_for_display(config.shared_dir_path)
 
 
 @app.post("/api/tools")
@@ -1472,6 +1524,28 @@ def api_save_file(
 
     push_error = _maybe_git_push(load_config(), shared_dir, f"Edit file '{path}'")
     return {"path": path, "git_push_error": push_error}
+
+
+@app.post("/api/files/rename")
+def api_rename_file(
+    path: str = Form(...),
+    new_name: str = Form(...),
+    _admin: str | None = Depends(require_admin_api),
+):
+    if MAIN_HOST:
+        return _forward_post("/api/files/rename", {"path": path, "new_name": new_name})
+    if READ_ONLY:
+        return JSONResponse(status_code=403, content={"error": READ_ONLY_MESSAGE})
+
+    config = load_config()
+    shared_dir = config.shared_dir_path
+    try:
+        new_path = repo_files.rename_path(shared_dir, path, new_name)
+    except repo_files.FileValidationError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+
+    push_error = _maybe_git_push(config, shared_dir, f"Rename file '{path}' -> '{new_path}'")
+    return {"path": new_path, "git_push_error": push_error}
 
 
 @app.post("/api/files/delete")

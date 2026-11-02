@@ -290,3 +290,21 @@ def test_child_relay_files_api_parity(child_client, tmp_path):
     r = child_client.post("/api/files/save", auth=("alice", "s3cret"), data={"path": "x.txt", "content": "two\n"})
     assert r.status_code == 200
     assert child_client.get("/files/raw", params={"path": "x.txt"}).text == "two\n"
+
+
+def test_child_relay_file_rename_round_trip(child_client, tmp_path):
+    payload = _files_zip(tmp_path, {"notes.md": b"# hi\n"})
+    child_client.post("/files/upload", files={"archive": ("f.zip", payload, "application/zip")})
+
+    r = child_client.post("/files/rename", data={"path": "notes.md", "new_name": "readme.md"})
+    assert "переименован" in r.text
+    assert "readme.md" in child_client.get("/files").text
+    assert child_client.get("/files/raw", params={"path": "readme.md"}).text == "# hi\n"
+
+
+def test_child_relay_file_rename_keeps_reserved_rules(child_client, tmp_path):
+    payload = _files_zip(tmp_path, {"notes.md": b"x"})
+    child_client.post("/files/upload", files={"archive": ("f.zip", payload, "application/zip")})
+
+    r = child_client.post("/files/rename", data={"path": "notes.md", "new_name": "tools"})
+    assert "служебн" in r.text

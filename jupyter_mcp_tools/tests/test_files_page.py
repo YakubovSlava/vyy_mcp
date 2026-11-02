@@ -249,3 +249,76 @@ def test_a_push_writes_the_launcher_but_no_run_script_or_vendor_dir(admin_client
     assert "launcher/src/main.py" in tree
     assert "run.sh" not in tree
     assert not any(path.startswith("_vendor/") for path in tree)
+
+
+# --------------------------------------------------------------------------
+# rename files and folders from the Files tab
+# --------------------------------------------------------------------------
+
+
+def test_rename_a_file_via_the_ui(admin_client, repo):
+    bare, clone = repo
+    (clone / "notes.md").write_text("# hi\n")
+
+    r = admin_client.post("/files/rename", data={"path": "notes.md", "new_name": "readme.md"})
+    assert "переименован" in r.text
+    assert (clone / "readme.md").read_text() == "# hi\n"
+
+    pushed = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", "HEAD"],
+        cwd=bare, capture_output=True, text=True, check=True,
+    ).stdout
+    assert "readme.md" in pushed and "notes.md" not in pushed
+
+
+def test_rename_a_directory_via_the_ui(admin_client, repo):
+    _bare, clone = repo
+    (clone / "src").mkdir()
+    (clone / "src" / "app.py").write_text("x\n")
+
+    r = admin_client.post("/files/rename", data={"path": "src", "new_name": "app"})
+    assert "переименован" in r.text
+    assert (clone / "app" / "app.py").exists()
+    assert not (clone / "src").exists()
+
+
+def test_rename_refuses_reserved_name_via_the_ui(admin_client, repo):
+    _bare, clone = repo
+    (clone / "notes.md").write_text("x")
+    r = admin_client.post("/files/rename", data={"path": "notes.md", "new_name": "tools"})
+    assert "служебн" in r.text
+    assert (clone / "notes.md").exists()
+
+
+def test_rename_blocked_in_read_only_mode(read_only_client):
+    r = read_only_client.post("/files/rename", data={"path": "a.txt", "new_name": "b.txt"})
+    assert "только просмотр" in r.text.lower()
+
+
+def test_rename_button_present_for_files_and_directories(admin_client, repo, tmp_path):
+    _bare, clone = repo
+    (clone / "src").mkdir()
+    (clone / "src" / "app.py").write_text("x\n")
+    (clone / "notes.md").write_text("x")
+
+    html = admin_client.get("/files").text
+    assert 'data-path="notes.md"' in html
+    assert 'data-path="src"' in html
+    assert "openRenameFile" in html
+    # The form's action is assigned in JS (it depends on which row was
+    # clicked), so assert on that assignment — and that it stays relative,
+    # since a leading "/" would escape the JupyterHub prefix.
+    assert '.action = "files/rename"' in html
+    assert '/files/rename"' not in html.split('.action = "files/rename"')[0][-60:]
+
+
+def test_api_rename_round_trip(admin_client, repo):
+    _bare, clone = repo
+    (clone / "notes.md").write_text("x")
+    r = admin_client.post(
+        "/api/files/rename",
+        auth=("alice", "s3cret"),
+        data={"path": "notes.md", "new_name": "readme.md"},
+    )
+    assert r.status_code == 200
+    assert r.json()["path"] == "readme.md"

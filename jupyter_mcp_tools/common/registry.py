@@ -223,6 +223,12 @@ def list_tools(shared_dir: Path) -> list[AnyManifest]:
     for entry in sorted(base.iterdir()):
         if not entry.is_dir():
             continue
+        # Dot-directories are this module's own scratch space (`.staging-`
+        # while installing, `.rename-` while renaming). They're transient and
+        # never valid skills, but skipping them explicitly means a crash
+        # mid-operation can't make one appear as an installed skill.
+        if entry.name.startswith("."):
+            continue
         manifest = _load_installed(entry)
         if manifest is not None:
             manifests.append(manifest)
@@ -330,8 +336,14 @@ def rename_tool(shared_dir: Path, old_name: str, new_name: str) -> AnyManifest:
         raise
 
     source_dir.rename(destination)
-    shutil.move(str(staging / module_path.name), str(destination / module_path.name))
-    return validate_dir(destination)
+    try:
+        shutil.move(str(staging / module_path.name), str(destination / module_path.name))
+        return validate_dir(destination)
+    finally:
+        # The staging dir is on disk under tools/ until this runs — leaving it
+        # behind shows up as a bogus skill folder in the admin UI and in the
+        # health check's "on disk but not served" warning.
+        shutil.rmtree(staging, ignore_errors=True)
 
 
 def _rename_function_in_source(source: str, *, old_function: str, new_function: str) -> str | None:

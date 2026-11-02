@@ -2263,3 +2263,31 @@
 - Verified live: created a code skill through MCP, renamed it, and a
   connected client then saw `wordcount` in `tools/list` and executed it
   successfully. Full suite: 360/360.
+
+## 2026-11-02 (built-in skills pinned to the top; relay gets the badge too)
+
+- Per request ("штатные скиллы, которые не редактируются вверх подними"):
+  built-in skills now sort first on the Skills tab, then everything else
+  alphabetically.
+- Ordering lives in a new `_tools_for_display()` shared by the page and
+  `/api/tools`, rather than in the template. That also fixed a real bug found
+  while doing it: **the JSON API didn't include the `builtin` flag at all**,
+  so on a child relay the `встроенный` badge never rendered and built-ins
+  looked like ordinary, editable skills — though the main host still refused
+  the mutations. The relay renders from that endpoint, so the flag has to be
+  in the payload, not computed per-request in the template.
+- Sort key is `(not builtin, name.lower())`: built-ins first, then stable
+  alphabetical order within each group.
+- 3 new tests: order in the page (using skill names that sort *before*
+  `skill_builder` alphabetically, which is exactly the case that would hide
+  a regression), order in the API, and the `builtin` flag being present in
+  the API payload.
+- Also included in this change (from the previous, uncommitted work): file
+  and folder renaming on the Files tab — `repo_files.rename_path()` plus
+  `/files/rename` and `/api/files/rename`. Renaming only changes the last
+  path segment; a slash is refused rather than silently turning into a move,
+  and both old and new paths go through `_resolve`, so a rename can't plant
+  a reserved name (`tools/`, `.git/`, `groups.json`, `launcher/`) from the
+  inside. 17 tests across `test_repo_files.py`, `test_files_page.py` and
+  `test_remote_mode.py` (including the relay round trip). Full suite:
+  387/387.

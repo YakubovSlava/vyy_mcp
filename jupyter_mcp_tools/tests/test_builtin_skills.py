@@ -5,6 +5,8 @@ format — it can always ask the built-in helper. That promise only holds if
 the skill can't be removed, so most of this file is about restoration and
 the admin-UI guards around it.
 """
+import re
+
 import pytest
 
 from jupyter_mcp_tools.common import builtin_skills, registry
@@ -192,3 +194,53 @@ def test_ordinary_skills_are_still_deletable(admin_client, tmp_path):
     r = admin_client.post("/tools/mine/delete")
     assert "удалён" in r.text
     assert not (shared / "tools" / "mine").exists()
+
+
+# --------------------------------------------------------------------------
+# ordering: built-ins first
+# --------------------------------------------------------------------------
+
+
+def test_builtins_come_first_in_the_page(admin_client, tmp_path):
+    """"вверх подними": they're always-present app helpers, so they belong
+    in a stable section at the top rather than interleaved with user skills."""
+    from jupyter_mcp_tools.common import registry as reg
+    from jupyter_mcp_tools.common.config import load_config
+
+    admin_client.post("/config/shared-dir", data={"path": str(tmp_path / "shared")})
+    shared = load_config().shared_dir_path
+    # Alphabetically these sort before "skill_builder", which is exactly the
+    # case that would hide the bug.
+    for name in ("aaa_skill", "zzz_skill"):
+        reg.create_doc_skill(shared, name=name, description="d", body="# x\n")
+
+    html = admin_client.get("/").text
+    # Order of appearance of the skill rows themselves, which is what the
+    # admin actually scans down.
+    row_order = [m for m in re.findall(r'data-search="([^"]*)"', html)]
+    names = [r.split()[0] for r in row_order]
+    assert names.index("skill_builder") < names.index("aaa_skill")
+    assert names.index("skill_builder") < names.index("zzz_skill")
+
+
+def test_builtins_first_in_the_api_too(admin_client, tmp_path):
+    """The relay renders from this endpoint, so ordering must live here
+    rather than only in the page."""
+    from jupyter_mcp_tools.common import registry as reg
+    from jupyter_mcp_tools.common.config import load_config
+
+    admin_client.post("/config/shared-dir", data={"path": str(tmp_path / "shared")})
+    shared = load_config().shared_dir_path
+    reg.create_doc_skill(shared, name="aaa_skill", description="d", body="# x\n")
+
+    names = [t["name"] for t in admin_client.get("/api/tools", auth=(ADMIN_USER, ADMIN_PASSWORD)).json()]
+    assert names[0] == "skill_builder"
+
+
+def test_api_exposes_the_builtin_flag(admin_client, tmp_path):
+    """Regression: the flag was missing from /api/tools, so a child relay
+    rendered built-ins as ordinary (editable-looking) skills."""
+    admin_client.post("/config/shared-dir", data={"path": str(tmp_path / "shared")})
+    payload = admin_client.get("/api/tools", auth=(ADMIN_USER, ADMIN_PASSWORD)).json()
+    entry = next(t for t in payload if t["name"] == "skill_builder")
+    assert entry["builtin"] is True

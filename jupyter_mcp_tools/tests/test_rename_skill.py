@@ -242,3 +242,30 @@ def test_rename_button_is_relative_and_present(admin_client, tmp_path):
     assert "openRenameSkill" in html
     assert 'action="tools/{{' not in html  # action is set by JS, relative
     assert '"tools/" + encodeURIComponent(name) + "/rename"' in html
+
+
+def test_staging_directory_does_not_survive_a_rename(tmp_path):
+    """Regression found via the health check: a leaked `.rename-*` folder
+    showed up as a skill directory that the server never registered."""
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    _install_code(shared)
+    registry.rename_tool(shared, "old_name", "new_name")
+
+    leftovers = [p.name for p in (shared / "tools").iterdir() if p.name.startswith(".rename-")]
+    assert leftovers == []
+    # And the rename itself still worked.
+    assert (shared / "tools" / "new_name" / "tool.py").exists()
+
+
+def test_dot_directories_are_never_listed_as_skills(tmp_path):
+    """A crash mid-install/rename must not surface scratch space as a skill."""
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    _install_code(shared)
+    (shared / "tools" / ".rename-crashed").mkdir()
+    (shared / "tools" / ".rename-crashed" / "tool.py").write_text(
+        'def ghost(x: str) -> str:\n    """D."""\n    return x\n'
+    )
+
+    assert [m.name for m in registry.list_tools(shared)] == ["old_name"]

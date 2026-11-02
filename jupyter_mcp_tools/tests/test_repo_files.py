@@ -20,6 +20,7 @@ from jupyter_mcp_tools.common.repo_files import (
     list_files,
     read_file,
     read_file_path,
+    rename_path,
     write_file,
 )
 
@@ -260,3 +261,86 @@ def test_single_file_in_a_subdirectory_is_not_flattened(repo, tmp_path):
     written = install_archive(repo, archive, overwrite=True)
     assert written == ["assets/logo.png"]
     assert (repo / "assets" / "logo.png").exists()
+
+
+# --------------------------------------------------------------------------
+# rename
+# --------------------------------------------------------------------------
+
+
+def test_rename_a_file_in_place(repo):
+    (repo / "notes.md").write_text("# hi\n")
+    assert rename_path(repo, "notes.md", "readme.md") == "readme.md"
+    assert (repo / "readme.md").read_text() == "# hi\n"
+    assert not (repo / "notes.md").exists()
+
+
+def test_rename_keeps_the_directory(repo):
+    """Only the last segment changes; the parent folder stays put."""
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("x = 1\n")
+    assert rename_path(repo, "src/app.py", "main.py") == "src/main.py"
+    assert (repo / "src" / "main.py").exists()
+    assert not (repo / "src" / "app.py").exists()
+
+
+def test_rename_a_directory_and_its_contents(repo):
+    (repo / "src").mkdir()
+    (repo / "src" / "nest").mkdir()
+    (repo / "src" / "nest" / "a.py").write_text("x\n")
+    assert rename_path(repo, "src", "app") == "app"
+    assert (repo / "app" / "nest" / "a.py").exists()
+
+
+def test_rename_refuses_a_slash(tmp_path):
+    """Renaming must not become a move: a slash would silently relocate the
+    file and skip the destination-parent hazards entirely."""
+    root = tmp_path / "repo"
+    (root / "a").mkdir(parents=True)
+    (root / "a" / "x.txt").write_text("1")
+    with pytest.raises(FileValidationError, match="переименование"):
+        rename_path(root, "a/x.txt", "b/y.txt")
+
+
+def test_rename_refuses_a_reserved_top_level_name(repo):
+    """Renaming onto `tools` would plant a reserved name from the inside."""
+    (repo / "notes.md").write_text("x")
+    with pytest.raises(FileValidationError):
+        rename_path(repo, "notes.md", "tools")
+    with pytest.raises(FileValidationError):
+        rename_path(repo, "notes.md", ".git")
+    with pytest.raises(FileValidationError):
+        rename_path(repo, "notes.md", "groups.json")
+
+
+def test_rename_refuses_an_existing_target(repo):
+    (repo / "a.txt").write_text("a")
+    (repo / "b.txt").write_text("b")
+    with pytest.raises(FileValidationError, match="уже существует"):
+        rename_path(repo, "a.txt", "b.txt")
+    assert (repo / "a.txt").read_text() == "a"
+
+
+def test_rename_to_the_same_name_is_refused(repo):
+    (repo / "a.txt").write_text("a")
+    with pytest.raises(FileValidationError, match="не изменилось"):
+        rename_path(repo, "a.txt", "a.txt")
+
+
+@pytest.mark.parametrize("bad", ["", "   ", ".", "..", "../x"])
+def test_rename_refuses_degenerate_names(repo, bad):
+    (repo / "a.txt").write_text("a")
+    with pytest.raises(FileValidationError):
+        rename_path(repo, "a.txt", bad)
+
+
+def test_rename_refuses_a_missing_source(repo):
+    with pytest.raises(FileValidationError, match="не найден"):
+        rename_path(repo, "nope.txt", "other.txt")
+
+
+def test_rename_cannot_escape_the_repo(repo, tmp_path):
+    (repo / "a.txt").write_text("a")
+    with pytest.raises(FileValidationError):
+        rename_path(repo, "a.txt", "../../escaped.txt")
+    assert not (tmp_path / "escaped.txt").exists()

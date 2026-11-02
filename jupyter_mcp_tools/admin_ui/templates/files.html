@@ -29,6 +29,11 @@
         <span class="tree-name">{{ node.name }}/</span>
         <span class="tree-count">{{ node.child_count }}</span>
       </button>
+      {% if not read_only %}
+      <span class="file-actions">
+        <button type="button" class="edit-btn" data-path="{{ node.path }}" data-name="{{ node.name }}" data-dir="1" onclick="openRenameFile(this)">Переименовать</button>
+      </span>
+      {% endif %}
       {% else %}
       <span class="tree-file">
         <span class="tree-name">{{ node.name }}</span>
@@ -39,6 +44,7 @@
           {% if node.editable %}
           <button type="button" class="edit-btn" data-path="{{ node.path }}" onclick="openEditFile(this)">Редактировать</button>
           {% endif %}
+          <button type="button" class="edit-btn" data-path="{{ node.path }}" data-name="{{ node.name }}" data-dir="0" onclick="openRenameFile(this)">Переименовать</button>
           <form method="post" action="files/delete" onsubmit="return confirm('Удалить {{ node.path }}?');">
             <input type="hidden" name="path" value="{{ node.path }}" />
             <button type="submit" class="remove-btn">Удалить</button>
@@ -141,6 +147,31 @@
 
   applyCollapse();
 
+  // Renaming keeps the file where it is and changes only the last path
+  // segment — moving between folders is a different (and riskier) operation,
+  // so the field is scoped to the name and the directory is shown read-only.
+  function openRenameFile(btn) {
+    const path = btn.dataset.path;
+    const isDir = btn.dataset.dir === "1";
+    const separator = path.lastIndexOf("/");
+    const parent = separator === -1 ? "" : path.slice(0, separator + 1);
+
+    document.getElementById("renameFileForm").action = "files/rename";
+    document.getElementById("renameFileHiddenInput").value = path;
+    document.getElementById("renameFileParent").textContent = parent || "(корень)";
+    const input = document.getElementById("renameFileNameInput");
+    input.value = btn.dataset.name;
+    // Select the basename of a file so typing replaces "notes" in
+    // "notes.md" and keeps the extension; for a directory select it all.
+    const dot = input.value.lastIndexOf(".");
+    if (isDir || dot <= 0) {
+      input.select();
+    } else {
+      input.setSelectionRange(0, dot);
+    }
+    renameFileDialog.showModal();
+  }
+
   function openNewFile() {
     document.getElementById("fileDialogTitle").textContent = "Новый файл";
     const pathInput = document.getElementById("filePathInput");
@@ -166,6 +197,24 @@
       : "Не удалось прочитать файл: " + response.status;
   }
 </script>
+
+<dialog id="renameFileDialog">
+  <form method="post" id="renameFileForm" class="dialog-body">
+    <h3>Переименовать</h3>
+    <p style="margin-top:-0.5rem;font-size:0.8rem;color:var(--muted)">
+      Папка: <code id="renameFileParent"></code> — меняется только имя, перемещения между папками здесь нет.
+    </p>
+    <input type="hidden" name="path" id="renameFileHiddenInput" />
+    <label>
+      Новое имя
+      <input type="text" name="new_name" id="renameFileNameInput" required />
+    </label>
+    <div class="dialog-actions">
+      <button type="button" class="btn ghost" onclick="renameFileDialog.close()">Отмена</button>
+      <button type="submit" class="btn primary">Переименовать</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="uploadFilesDialog" class="wide">
   <form method="post" action="files/upload" enctype="multipart/form-data" class="dialog-body">
