@@ -30,22 +30,43 @@ from pathlib import Path
 from . import registry
 from .doc_skill import create_doc_skill_dir
 
+# The executor's source is read from inside the package: `examples/` is not
+# part of the distribution, so a built-in code skill sourced from there would
+# simply be missing after `pip install`.
+_CREATE_SKILL_SOURCE = (Path(__file__).resolve().parent.parent / "builtin" / "create_skill.py").read_text(
+    encoding="utf-8"
+)
+
 logger = logging.getLogger("jupyter_mcp_tools.builtin_skills")
 
 
 @dataclass(frozen=True)
 class BuiltinSkill:
+    """A skill that ships with the app and is restored if it goes missing.
+
+    Either kind is supported, because they come in pairs: `skill_builder`
+    tells an agent to call `create_skill`, so leaving the executor as an
+    ordinary deletable skill would leave the instruction pointing at
+    something that can vanish. Both are built in, so the pair can't come
+    apart.
+    """
+
     name: str
     description: str
-    body: str  # SKILL.md content
+    # Exactly one of these is set, and `kind` follows from which.
+    body: str = ""  # doc skill: SKILL.md content
+    source: str = ""  # code skill: the .py module, written as tool.py
     group: str = ""
 
     @property
     def kind(self) -> str:
-        # Every built-in skill so far is a doc skill: they instruct the
-        # agent, they don't execute anything themselves. A future executable
-        # built-in would need a source field and a different writer.
-        return "doc"
+        return "code" if self.source else "doc"
+
+    def files(self) -> dict[str, str]:
+        """The files this skill consists of, keyed by name inside its folder."""
+        if self.source:
+            return {"tool.py": self.source}
+        return {"SKILL.md": self.body}
 
 
 _SKILL_BUILDING_BODY = """\
@@ -149,6 +170,17 @@ DATA = json.load(open(__file__.replace("tool.py", "data.json")))
 
 BUILTIN_SKILLS: tuple[BuiltinSkill, ...] = (
     BuiltinSkill(
+        name="create_skill",
+        description=(
+            "Creates a new skill for this MCP server and installs it immediately: "
+            "kind=\"doc\" takes name/description/body, kind=\"code\" takes the full .py "
+            "source. Use it when the user asks to add or automate something as a skill. "
+            "The candidate is verified before it is written, so a rejection means the "
+            "skill would not have worked."
+        ),
+        source=_CREATE_SKILL_SOURCE,
+    ),
+    BuiltinSkill(
         name="skill_builder",
         description=(
             "Use when you need to create a new skill (tool) for this MCP server, "
@@ -185,11 +217,28 @@ def ensure_builtin_skills(shared_dir: Path) -> list[str]:
         if destination.exists():
             continue
         try:
-            create_doc_skill_dir(
-                destination, description=skill.description, body=skill.body, group=skill.group
-            )
+            _write_builtin(destination, skill)
             written.append(skill.name)
-            logger.info("restored built-in skill: %s", skill.name)
+            logger.info("restored built-in skill: %s (%s)", skill.name, skill.kind)
         except Exception:  # noqa: BLE001 - never break the sync loop
             logger.exception("failed to write built-in skill %s", skill.name)
     return written
+
+
+def _write_builtin(destination: Path, skill: BuiltinSkill) -> None:
+    """Materialise one built-in skill on disk.
+
+    Doc skills go through `create_doc_skill_dir` so their `.skill_meta.json`
+    sidecar is written exactly the way a normal doc skill's is; a code skill
+    is just its module, which is self-describing (name and description are
+    the function and its docstring), so no sidecar is needed.
+    """
+    if skill.kind == "doc":
+        create_doc_skill_dir(
+            destination, description=skill.description, body=skill.body, group=skill.group
+        )
+        return
+
+    destination.mkdir(parents=True, exist_ok=True)
+    for filename, content in skill.files().items():
+        (destination / filename).write_text(content, encoding="utf-8")

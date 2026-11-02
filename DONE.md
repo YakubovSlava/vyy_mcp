@@ -2348,3 +2348,40 @@
   handler — was kept, retargeted at the row's `data-*` attributes, which is
   where that contract lives now.
 - Full suite: 387/387. Both processes restarted on the new code.
+
+## 2026-11-02 (create_skill is built in too, so the pair can't come apart)
+
+- Reported: "почему я дефолтные навыки могу удалить?" Only `skill_builder` was
+  declared built-in; `create_skill` was an ordinary skill that happened to sit
+  in the repo's `shared_tools/`. Since `skill_builder` instructs the agent to
+  **call `create_skill`** (four references in its text), deleting it left a
+  permanent instruction pointing at a tool that no longer existed — the agent
+  would follow it and get an error. Protecting one half of a dependent pair is
+  worse than protecting neither.
+- `create_skill` is now built in as well. `BuiltinSkill` grew a `source` field
+  alongside `body` (exactly one set; `kind` follows from which), so built-ins
+  can be either a doc bundle or a code module, and `_write_builtin()` writes
+  the right shape — a doc skill still goes through `create_doc_skill_dir` so
+  its `.skill_meta.json` sidecar is identical to a normal doc skill's; a code
+  skill is just `tool.py`, which is self-describing.
+- The executor's source moved to `jupyter_mcp_tools/builtin/create_skill.py`
+  and is read from there, **not** from `examples/`. `examples/` is not in the
+  distribution, so a built-in sourced from it would silently be missing after
+  `pip install` — the failure would only show up on a real deployment, not in
+  this checkout. `examples/create_skill/tool.py` and the `shared_tools/` copy
+  remain as the standalone/example version.
+- Both are now uneditable, unrenamable and undeletable (existing guards key
+  off `is_builtin` by name, so they applied automatically), restored if the
+  folder disappears, and listed first. `my-grouped-skill` stays a normal user
+  skill — it's a test fixture someone installed, not something the app ships.
+- 15 existing tests updated: most were indexing `tools[0]` or asserting an
+  exact one-element tool list, which a second built-in invalidated. Rewritten
+  to look skills up **by name** rather than by position, so adding a third
+  built-in won't break them again. `test_a_builtin_skill_exists_and_is_a_doc_skill`
+  became `test_builtins_cover_both_kinds`, plus a new test asserting the
+  executor's name actually appears in the builder's text — that's the
+  invariant that forced this change.
+- Verified live: both appear in `tools/list` (create_skill as `[exec]`,
+  skill_builder as `[read]`), a real `create_skill` call through MCP installed
+  a skill that the next sync picked up, and deleting either folder makes it
+  come back. Full suite: 388/388.

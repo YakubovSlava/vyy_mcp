@@ -698,10 +698,17 @@ example: `python examples/build_archive.py setup_files_tool`).
 
 ### A built-in helper that teaches the agent how to write skills
 
-Every deployment gets a **`skill_builder`** skill automatically, with no
-install step. It's a doc skill whose whole job is to stop an agent guessing
-at the archive format: it explains which of the two kinds to pick, the exact
-validation rules, and how to call `create_skill`.
+Every deployment gets **two** skills automatically, with no install step,
+because they only work as a pair:
+
+| Built-in | Kind | Role |
+|---|---|---|
+| `create_skill` | `[exec]` | installs a new skill from what the agent wrote |
+| `skill_builder` | `[read]` | explains which kind to pick, the validation rules, and how to call `create_skill` |
+
+`skill_builder` tells the agent to call `create_skill` by name, so leaving the
+executor as an ordinary deletable skill would let the instruction outlive the
+tool it points at. Both are built in, so they can't drift apart.
 
 It is **built in**: listed first on the Skills tab (they're always-present
 app helpers, so they get a stable section at the top instead of being
@@ -720,7 +727,10 @@ load rather than within five seconds.
 
 To add another built-in, add a `BuiltinSkill` to `BUILTIN_SKILLS` in
 `common/builtin_skills.py` — nothing else needs changing, since they're
-written as ordinary folders and picked up by the normal scan.
+written as ordinary folders and picked up by the normal scan. A code built-in
+sets `source=` instead of `body=`; its module must live **inside the package**
+(`jupyter_mcp_tools/builtin/`), not in `examples/`, or it won't exist after
+`pip install`.
 
 ### A skill that creates other skills
 

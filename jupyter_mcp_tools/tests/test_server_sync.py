@@ -45,8 +45,8 @@ def test_sync_registers_and_removes_tools(make_archive, shared_dir):
     app = build_app(shared_dir)
 
     sync_tools(app, shared_dir)
-    # Only the built-in helper is there before anything is installed.
-    assert {t.name for t in app._tool_manager.list_tools()} == {"skill_builder"}
+    # Only the built-in pair is there before anything is installed.
+    assert {t.name for t in app._tool_manager.list_tools()} == {"create_skill", "skill_builder"}
 
     archive = make_archive("greet", VALID_MODULE)
     registry.install_tool(archive, shared_dir)
@@ -61,8 +61,8 @@ def test_sync_registers_and_removes_tools(make_archive, shared_dir):
 
     registry.remove_tool(shared_dir, "greet")
     sync_tools(app, shared_dir)
-    # Removing the installed skill leaves only the built-in helper.
-    assert {t.name for t in app._tool_manager.list_tools()} == {"skill_builder"}
+    # Removing the installed skill leaves only the built-in pair.
+    assert {t.name for t in app._tool_manager.list_tools()} == {"create_skill", "skill_builder"}
 
 
 def test_sync_picks_up_updated_tool_code(make_archive, shared_dir):
@@ -119,10 +119,9 @@ def test_doc_skill_round_trip(shared_dir, tmp_path):
     app = build_app(shared_dir)
     sync_tools(app, shared_dir)
 
-    tools = app._tool_manager.list_tools()
-    names = {t.name for t in tools}
-    assert "repo-explainer" in names and "skill_builder" in names
-    assert "organized" in tools[0].description
+    tools = {t.name: t for t in app._tool_manager.list_tools()}
+    assert "repo-explainer" in tools and "skill_builder" in tools
+    assert "organized" in tools["repo-explainer"].description
 
     content, _ = asyncio.run(app.call_tool("repo-explainer", {}))
     assert "Repo explainer" in content[0].text
@@ -143,10 +142,10 @@ def test_sync_prefixes_description_with_group(make_archive, shared_dir):
     registry.install_tool(archive, shared_dir)
     sync_tools(app, shared_dir)
 
-    tools = app._tool_manager.list_tools()
+    tools = {t.name: t for t in app._tool_manager.list_tools()}
     # Marker first, then the group prefix: "does this run code" is the more
     # consequential fact for an agent than which category it belongs to.
-    assert tools[0].description.startswith("[exec] [networking] ")
+    assert tools["greet"].description.startswith("[exec] [networking] ")
 
 
 def test_sync_no_group_prefix_when_group_is_empty(make_archive, shared_dir):
@@ -156,10 +155,10 @@ def test_sync_no_group_prefix_when_group_is_empty(make_archive, shared_dir):
     registry.install_tool(archive, shared_dir)
     sync_tools(app, shared_dir)
 
-    tools = app._tool_manager.list_tools()
+    tools = {t.name: t for t in app._tool_manager.list_tools()}
     # An ungrouped code skill starts with the exec marker and nothing else.
-    assert tools[0].description.startswith("[exec] ")
-    assert "[networking]" not in tools[0].description
+    assert tools["greet"].description.startswith("[exec] ")
+    assert "[networking]" not in tools["greet"].description
 
 
 def test_sync_folds_grouped_skills_behind_one_dispatcher_tool(make_archive, shared_dir, tmp_path):
@@ -184,9 +183,9 @@ def test_sync_folds_grouped_skills_behind_one_dispatcher_tool(make_archive, shar
     sync_tools(app, shared_dir)
 
     names = {t.name for t in app._tool_manager.list_tools()}
-    # The two grouped skills are folded behind one dispatcher; the built-in
-    # helper is ungrouped so it stays a tool of its own.
-    assert names == {"group_networking", "skill_builder"}
+    # The two grouped skills are folded behind one dispatcher; the built-ins
+    # are ungrouped so they stay tools of their own.
+    assert names == {"group_networking", "create_skill", "skill_builder"}
 
     group_tool = next(t for t in app._tool_manager.list_tools() if t.name == "group_networking")
     assert group_tool.description == "Network-related skills."
@@ -226,10 +225,9 @@ def test_sync_falls_back_to_standalone_for_unrecognized_group(make_archive, shar
     app = build_app(shared_dir)
     sync_tools(app, shared_dir)
 
-    tools = app._tool_manager.list_tools()
-    names = {t.name for t in tools}
-    assert "greet" in names and "skill_builder" in names
-    assert tools[0].description.startswith("[exec] [nonexistent] ")
+    tools = {t.name: t for t in app._tool_manager.list_tools()}
+    assert "greet" in tools and "skill_builder" in tools
+    assert tools["greet"].description.startswith("[exec] [nonexistent] ")
 
 
 # --------------------------------------------------------------------------
@@ -246,7 +244,8 @@ def test_code_skill_is_marked_executable(make_archive, shared_dir):
     app = build_app(shared_dir)
     sync_tools(app, shared_dir)
 
-    description = app._tool_manager.list_tools()[0].description
+    tools = {t.name: t for t in app._tool_manager.list_tools()}
+    description = tools["greet"].description
     assert description.startswith(EXEC_MARKER)
     # The skill's own description must survive intact after the marker.
     assert "Greets someone by name." in description
@@ -268,7 +267,8 @@ def test_doc_skill_is_marked_read_only(shared_dir, tmp_path):
     app = build_app(shared_dir)
     sync_tools(app, shared_dir)
 
-    description = app._tool_manager.list_tools()[0].description
+    tools = {t.name: t for t in app._tool_manager.list_tools()}
+    description = tools["guide"].description
     assert description.startswith(READ_MARKER)
     assert "Explains the thing." in description
 

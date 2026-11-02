@@ -30,14 +30,25 @@ from jupyter_mcp_tools.tests.test_admin_api import (  # noqa: F401
 # --------------------------------------------------------------------------
 
 
-def test_a_builtin_skill_exists_and_is_a_doc_skill():
+def test_builtins_cover_both_kinds():
+    """They come as a pair: skill_builder tells the agent to call
+    create_skill, so the executor has to be just as permanent — otherwise the
+    instruction can outlive the tool it points at."""
     assert BUILTIN_SKILL_NAMES, "there should be at least one built-in skill"
-    manifest = registry.list_tools  # just to keep the import used
-    assert manifest is not None
+    kinds = {skill.kind for skill in builtin_skills.BUILTIN_SKILLS}
+    assert kinds == {"doc", "code"}
     for skill in builtin_skills.BUILTIN_SKILLS:
-        assert skill.kind == "doc"
         assert skill.name == skill.name.lower()
         assert skill.description, "an agent decides whether to call it from this"
+
+
+def test_the_executor_and_its_instructions_are_both_builtin():
+    builder = next(s for s in builtin_skills.BUILTIN_SKILLS if s.name == "skill_builder")
+    executor = next(s for s in builtin_skills.BUILTIN_SKILLS if s.name == "create_skill")
+    # The instruction references the tool by name; that only stays true if
+    # both are built in.
+    assert executor.name in builder.body
+    assert executor.kind == "code"
 
 
 def test_the_helper_covers_both_kinds_and_their_traps():
@@ -64,9 +75,15 @@ def test_the_helper_covers_both_kinds_and_their_traps():
 def test_installed_automatically(tmp_path):
     written = ensure_builtin_skills(tmp_path)
     assert set(written) == BUILTIN_SKILL_NAMES
-    for name in BUILTIN_SKILL_NAMES:
-        assert (tmp_path / "tools" / name / "SKILL.md").is_file()
-        assert (tmp_path / "tools" / name / ".skill_meta.json").is_file()
+    for skill in builtin_skills.BUILTIN_SKILLS:
+        folder = tmp_path / "tools" / skill.name
+        assert folder.is_dir()
+        for filename in skill.files():
+            assert (folder / filename).is_file(), f"{skill.name}/{filename}"
+        if skill.kind == "doc":
+            # Doc skills need the sidecar for description/group on re-scan;
+            # a code skill is self-describing.
+            assert (folder / ".skill_meta.json").is_file()
 
 
 def test_idempotent_and_creates_no_spurious_changes(tmp_path):
@@ -102,9 +119,10 @@ def test_a_hand_edited_builtin_is_left_alone(tmp_path):
 def test_lists_through_the_normal_registry(tmp_path):
     """No special-casing in sync_tools: they're ordinary folders on disk."""
     ensure_builtin_skills(tmp_path)
-    manifests = registry.list_tools(tmp_path)
-    assert {m.name for m in manifests} == BUILTIN_SKILL_NAMES
-    assert all(m.kind == "doc" for m in manifests)
+    manifests = {m.name: m for m in registry.list_tools(tmp_path)}
+    assert set(manifests) == BUILTIN_SKILL_NAMES
+    # The code built-in is parsed from its module like any other code skill.
+    assert manifests["create_skill"].kind == "code"
 
 
 def test_is_builtin_is_name_based():
@@ -237,7 +255,8 @@ def test_builtins_first_in_the_api_too(admin_client, tmp_path):
     reg.create_doc_skill(shared, name="aaa_skill", description="d", body="# x\n")
 
     names = [t["name"] for t in admin_client.get("/api/tools", auth=(ADMIN_USER, ADMIN_PASSWORD)).json()]
-    assert names[0] == "skill_builder"
+    # Both built-ins come first, then user skills.
+    assert names[:2] == ["create_skill", "skill_builder"]
 
 
 def test_api_exposes_the_builtin_flag(admin_client, tmp_path):
@@ -245,5 +264,4 @@ def test_api_exposes_the_builtin_flag(admin_client, tmp_path):
     rendered built-ins as ordinary (editable-looking) skills."""
     admin_client.post("/config/shared-dir", data={"path": str(tmp_path / "shared")})
     payload = admin_client.get("/api/tools", auth=(ADMIN_USER, ADMIN_PASSWORD)).json()
-    entry = next(t for t in payload if t["name"] == "skill_builder")
-    assert entry["builtin"] is True
+    assert all(t["builtin"] is True for t in payload if t["name"] in BUILTIN_SKILL_NAMES)

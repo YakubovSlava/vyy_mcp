@@ -86,8 +86,8 @@ def test_upload_install_list_and_delete(client, tmp_path):
     assert r.status_code == 200
 
     r = client.get("/api/tools", auth=(ADMIN_USER, ADMIN_PASSWORD))
-    # Deleting what we installed leaves the built-in helper behind.
-    assert [t["name"] for t in r.json()] == ["skill_builder"]
+    # Deleting what we installed leaves the built-in pair behind.
+    assert [t["name"] for t in r.json()] == ["create_skill", "skill_builder"]
 
 
 def test_upload_duplicate_without_overwrite_shows_error(client, tmp_path):
@@ -405,9 +405,9 @@ def test_edit_doc_skill_description(client, tmp_path):
     from jupyter_mcp_tools.common.config import load_config
     from jupyter_mcp_tools.common.registry import list_tools
 
-    tools = list_tools(load_config().shared_dir_path)
-    assert tools[0].description == "Updated description."
-    assert tools[0].group == "networking"
+    tools = {m.name: m for m in list_tools(load_config().shared_dir_path)}
+    assert tools["doc-skill"].description == "Updated description."
+    assert tools["doc-skill"].group == "networking"
 
 
 def test_edit_button_data_attributes_survive_quotes_in_description(client, tmp_path):
@@ -548,7 +548,7 @@ def test_read_only_blocks_upload(read_only_client, tmp_path):
     assert "только просмотр" in r.text.lower()
 
     r = read_only_client.get("/api/tools", auth=(ADMIN_USER, ADMIN_PASSWORD))
-    assert [t["name"] for t in r.json()] == ["skill_builder"]  # nothing actually got installed
+    assert [t["name"] for t in r.json()] == ["create_skill", "skill_builder"]  # nothing got installed
 
 
 def test_read_only_blocks_delete(read_only_client, tmp_path):
@@ -616,7 +616,7 @@ def test_create_doc_skill_blocked_in_read_only_mode(read_only_client):
     assert "только просмотр" in r.text.lower()
 
     r = read_only_client.get("/api/tools", auth=(ADMIN_USER, ADMIN_PASSWORD))
-    assert [t["name"] for t in r.json()] == ["skill_builder"]
+    assert [t["name"] for t in r.json()] == ["create_skill", "skill_builder"]
 
 
 def test_api_create_doc_skill_returns_403_in_read_only_mode(read_only_client):
