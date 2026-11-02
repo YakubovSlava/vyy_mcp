@@ -2291,3 +2291,30 @@
   inside. 17 tests across `test_repo_files.py`, `test_files_page.py` and
   `test_remote_mode.py` (including the relay round trip). Full suite:
   387/387.
+
+## 2026-11-02 (wider workspace; per-skill detail moved into the hover popup)
+
+- Per request: `main` is now `width: 75vw` on the workspace instead of the
+  old `max-width: 840px`, so wide screens actually use their width. Two
+  deliberate details: `max-width: none` (a cap would silently undo the
+  percentage on large monitors) and a `@media (max-width: 900px)` fallback to
+  a full-width column with normal gutters, since 75vw of a narrow window
+  squeezes content rather than widening it.
+- Per request: category, kind (`код`/`SKILL.md`) and the `exec`/`read` badge
+  no longer appear in every row — they live in the hover popup, which is
+  where per-skill detail belongs. That also let the row grid drop from four
+  columns to three (`name | description | actions`), which is what was
+  making descriptions truncate: the category column alone ate ~140px of
+  every row.
+- The `встроенный` badge stays inline: it's a property of the skill's
+  ownership (and explains why there are no buttons), not a detail you'd
+  hover to discover.
+- Widened the `dialog.wide` cap from 640px to 760px so the popup and the
+  editor dialogs benefit from the wider workspace too.
+- One existing test asserted the category sat *left of* the name in source
+  order — that was the old layout. Rewritten to assert the new arrangement:
+  the category marker must appear after the name and inside the tooltip
+  block, and the kind chip must appear exactly once per skill.
+- Verified by rendering the real Skills page with the live skill set: rows
+  now contain only `skill-name` + `skill-desc`, and `без категории` appears
+  only inside popups. Full suite: 387/387.

@@ -432,18 +432,26 @@ def test_edit_button_data_attributes_survive_quotes_in_description(client, tmp_p
     assert "&#34;tricky&#34;" in r.text or "&#x27;" in r.text or "&#39;" in r.text
 
 
-def test_skill_row_shows_category_left_of_name_without_kind_badge(client, tmp_path):
+def test_skill_row_keeps_detail_in_the_popup_only(client, tmp_path):
+    """The row shows just the name; category, kind and exec/read live in the
+    hover popup. Repeating them per row ate a third of the width and made
+    descriptions truncate."""
     data = _archive_bytes(tmp_path)
     client.post("/tools/upload", files={"archive": ("greet.zip", data, "application/zip")})
 
     r = client.get("/")
     assert "без категории" in r.text
-    # The kind badge markup only appears once per skill (inside the
-    # hover tooltip) -- the always-visible row no longer repeats it.
+    # Exactly one kind chip per skill -- inside the popup, not the row.
     assert r.text.count('class="skill-kind kind-code">код</span>') == 1
-    # The category span comes before the name span in source order,
-    # i.e. visually to its left in the row's grid.
-    assert r.text.index("без категории") < r.text.index('class="skill-name"')
+
+    # And the category marker sits inside the tooltip block, not before the
+    # name in the row body.
+    row_start = r.text.index('class="skill-row')
+    tooltip_start = r.text.index('class="skill-tooltip"')
+    name_start = r.text.index('class="skill-name"')
+    category_start = r.text.index("без категории")
+    assert name_start < tooltip_start < category_start, "category should be in the popup"
+    assert category_start > row_start
 
 
 def test_skill_row_shows_real_category_when_group_set(client, tmp_path):
