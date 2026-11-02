@@ -45,21 +45,24 @@ def test_sync_registers_and_removes_tools(make_archive, shared_dir):
     app = build_app(shared_dir)
 
     sync_tools(app, shared_dir)
-    assert app._tool_manager.list_tools() == []
+    # Only the built-in helper is there before anything is installed.
+    assert {t.name for t in app._tool_manager.list_tools()} == {"skill_builder"}
 
     archive = make_archive("greet", VALID_MODULE)
     registry.install_tool(archive, shared_dir)
     sync_tools(app, shared_dir)
 
     tools = app._tool_manager.list_tools()
-    assert [t.name for t in tools] == ["greet"]
+    names = {t.name for t in tools}
+    assert "greet" in names and "skill_builder" in names
 
     content, _ = asyncio.run(app.call_tool("greet", {"name": "World"}))
     assert "World" in content[0].text
 
     registry.remove_tool(shared_dir, "greet")
     sync_tools(app, shared_dir)
-    assert app._tool_manager.list_tools() == []
+    # Removing the installed skill leaves only the built-in helper.
+    assert {t.name for t in app._tool_manager.list_tools()} == {"skill_builder"}
 
 
 def test_sync_picks_up_updated_tool_code(make_archive, shared_dir):
@@ -117,7 +120,8 @@ def test_doc_skill_round_trip(shared_dir, tmp_path):
     sync_tools(app, shared_dir)
 
     tools = app._tool_manager.list_tools()
-    assert [t.name for t in tools] == ["repo-explainer"]
+    names = {t.name for t in tools}
+    assert "repo-explainer" in names and "skill_builder" in names
     assert "organized" in tools[0].description
 
     content, _ = asyncio.run(app.call_tool("repo-explainer", {}))
@@ -180,7 +184,9 @@ def test_sync_folds_grouped_skills_behind_one_dispatcher_tool(make_archive, shar
     sync_tools(app, shared_dir)
 
     names = {t.name for t in app._tool_manager.list_tools()}
-    assert names == {"group_networking"}
+    # The two grouped skills are folded behind one dispatcher; the built-in
+    # helper is ungrouped so it stays a tool of its own.
+    assert names == {"group_networking", "skill_builder"}
 
     group_tool = next(t for t in app._tool_manager.list_tools() if t.name == "group_networking")
     assert group_tool.description == "Network-related skills."
@@ -221,7 +227,8 @@ def test_sync_falls_back_to_standalone_for_unrecognized_group(make_archive, shar
     sync_tools(app, shared_dir)
 
     tools = app._tool_manager.list_tools()
-    assert [t.name for t in tools] == ["greet"]
+    names = {t.name for t in tools}
+    assert "greet" in names and "skill_builder" in names
     assert tools[0].description.startswith("[exec] [nonexistent] ")
 
 

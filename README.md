@@ -664,6 +664,30 @@ The response is `{"message": "...", "files": [{"filename", "content",
 working skill using this pattern (zip it the same way as any other
 example: `python examples/build_archive.py setup_files_tool`).
 
+### A built-in helper that teaches the agent how to write skills
+
+Every deployment gets a **`skill_builder`** skill automatically, with no
+install step. It's a doc skill whose whole job is to stop an agent guessing
+at the archive format: it explains which of the two kinds to pick, the exact
+validation rules, and how to call `create_skill`.
+
+It is **built in**: shown greyed out with a `встроенный` badge on the Skills
+tab, and with no Edit/Delete controls. If the folder disappears — deleted by
+hand, a fresh shared directory, a new deployment — it's written back
+automatically. Removal is refused over both the HTML routes and the JSON
+API, so a child relay can't bypass it either. Existing copies are never
+rewritten, so a hand-edited version stays as it is until deleted.
+
+The catch worth knowing: restoration runs from the MCP server's sync loop
+and from the admin UI's own page render, and the sync loop lives inside a
+session's lifespan. With no client connected and no admin page open, nothing
+ticks, so a hand-deleted built-in comes back on the next connection or page
+load rather than within five seconds.
+
+To add another built-in, add a `BuiltinSkill` to `BUILTIN_SKILLS` in
+`common/builtin_skills.py` — nothing else needs changing, since they're
+written as ordinary folders and picked up by the normal scan.
+
 ### A skill that creates other skills
 
 `examples/create_skill/tool.py` is a meta-skill: once installed (like any

@@ -60,7 +60,9 @@ def _archive_bytes(tmp_path, module=VALID_MODULE):
 def test_index_loads(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert "Навыки пока не установлены" in r.text
+    # A fresh shared dir still has the built-in helper in it, so the empty
+    # state can't be what's asserted any more.
+    assert "skill_builder" in r.text
 
 
 def test_upload_install_list_and_delete(client, tmp_path):
@@ -74,14 +76,18 @@ def test_upload_install_list_and_delete(client, tmp_path):
 
     r = client.get("/api/tools", auth=(ADMIN_USER, ADMIN_PASSWORD))
     assert r.status_code == 200
+    # Built-in skills are always present now; assert on what was installed
+    # rather than on an exact list.
     names = [t["name"] for t in r.json()]
-    assert names == ["greet"]
+    assert "greet" in names
+    assert "skill_builder" in names  # the built-in helper
 
     r = client.post("/tools/greet/delete")
     assert r.status_code == 200
 
     r = client.get("/api/tools", auth=(ADMIN_USER, ADMIN_PASSWORD))
-    assert r.json() == []
+    # Deleting what we installed leaves the built-in helper behind.
+    assert [t["name"] for t in r.json()] == ["skill_builder"]
 
 
 def test_upload_duplicate_without_overwrite_shows_error(client, tmp_path):
@@ -450,7 +456,13 @@ def test_skill_row_shows_real_category_when_group_set(client, tmp_path):
 
     r = client.get("/")
     assert 'class="skill-group">networking</span>' in r.text
-    assert "без категории" not in r.text
+    # The built-in helper is ungrouped and legitimately shows "без
+    # категории", so assert per-row instead of on the whole page.
+    import re
+
+    row = re.search(r'<div class="skill-row[^"]*"[^>]*>.*?doc-skill.*?</div>\s*</div>', r.text, re.S)
+    assert row, "doc-skill row not found"
+    assert 'class="skill-group">networking</span>' in row.group(0)
 
 
 def test_edit_description_rejects_code_skill(client, tmp_path):
@@ -463,7 +475,12 @@ def test_edit_description_rejects_code_skill(client, tmp_path):
 
 def test_edit_description_missing_skill_shows_error(client):
     r = client.post("/tools/does-not-exist/edit-description", data={"description": "x"})
-    assert "не установлен" in r.text
+    # Assert the actual error banner. The previous assertion matched
+    # "не установлены" from the empty-state block ("Навыки пока не
+    # установлены"), so it passed without ever checking the error — it only
+    # broke once a built-in skill made that empty state disappear.
+    assert "is not installed" in r.text
+    assert 'class="banner err"' in r.text
 
 
 def test_delete_pushes_to_git_when_configured(client, tmp_path):
@@ -524,7 +541,7 @@ def test_read_only_blocks_upload(read_only_client, tmp_path):
     assert "только просмотр" in r.text.lower()
 
     r = read_only_client.get("/api/tools", auth=(ADMIN_USER, ADMIN_PASSWORD))
-    assert r.json() == []  # nothing actually got installed
+    assert [t["name"] for t in r.json()] == ["skill_builder"]  # nothing actually got installed
 
 
 def test_read_only_blocks_delete(read_only_client, tmp_path):
@@ -567,7 +584,8 @@ def test_create_doc_skill_from_text(client):
 
     r = client.get("/api/tools", auth=(ADMIN_USER, ADMIN_PASSWORD))
     names = [t["name"] for t in r.json()]
-    assert names == ["my-skill"]
+    assert "my-skill" in names
+    assert "skill_builder" in names
 
 
 def test_create_doc_skill_duplicate_without_overwrite_shows_error(client):
@@ -588,7 +606,7 @@ def test_create_doc_skill_blocked_in_read_only_mode(read_only_client):
     assert "только просмотр" in r.text.lower()
 
     r = read_only_client.get("/api/tools", auth=(ADMIN_USER, ADMIN_PASSWORD))
-    assert r.json() == []
+    assert [t["name"] for t in r.json()] == ["skill_builder"]
 
 
 def test_api_create_doc_skill_returns_403_in_read_only_mode(read_only_client):

@@ -38,6 +38,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from starlette.background import BackgroundTask
 from ..common import auth, curl_client, git_push, registry, session, users
+from ..common import builtin_skills
 from ..common import groups as group_store
 from ..common import repo_files
 from ..common.config import AppConfig, load_config, save_config
@@ -216,6 +217,24 @@ def require_admin_api(credentials: HTTPBasicCredentials | None = Depends(_basic_
     return credentials.username
 
 
+BUILTIN_SKILL_MESSAGE = (
+    "Это встроенный навык — его нельзя изменить или удалить. "
+    "Он восстанавливается автоматически и нужен агенту как есть."
+)
+
+
+def _reject_builtin(name: str, request: Request):
+    """Refuse to edit/delete a built-in skill.
+
+    Returning a redirect rather than raising keeps the HTML routes'
+    convention (a banner in the page body), and the same check runs on the
+    JSON API so a child relay can't slip past it either.
+    """
+    if builtin_skills.is_builtin(name):
+        return _redirect_to_root(request, error=BUILTIN_SKILL_MESSAGE)
+    return None
+
+
 def _remote_list_tools() -> tuple[list[dict], str | None]:
     try:
         resp = curl_client.get(f"{MAIN_HOST}/api/tools", CHILD_USER, CHILD_PASSWORD, insecure=INSECURE_TLS)
@@ -282,7 +301,13 @@ def _render(request: Request, **extra):
         config = load_config()
         shared_dir = config.shared_dir_path
         shared_dir.mkdir(parents=True, exist_ok=True)
-        tools = [registry.manifest_to_dict(m) for m in registry.list_tools(shared_dir)]
+        # Built-in skills reappear here rather than only in the MCP server,
+        # so the admin sees the same list an agent does.
+        builtin_skills.ensure_builtin_skills(shared_dir)
+        tools = [
+            {**registry.manifest_to_dict(m), "builtin": builtin_skills.is_builtin(m.name)}
+            for m in registry.list_tools(shared_dir)
+        ]
         address_label = str(shared_dir)
         bitbucket_base_url = config.bitbucket_base_url or ""
         git_push_username = config.git_push_username or ""
@@ -882,6 +907,8 @@ def create_doc_skill_route(
 def delete_tool(request: Request, name: str, _admin: str | None = Depends(require_admin_page)):
     if READ_ONLY:
         return _redirect_to_root(request, error=READ_ONLY_MESSAGE)
+    if (refusal := _reject_builtin(name, request)) is not None:
+        return refusal
     if MAIN_HOST:
         try:
             resp = curl_client.post(
@@ -976,6 +1003,8 @@ def edit_doc_skill_description(
     edited by editing the .py file directly."""
     if READ_ONLY:
         return _redirect_to_root(request, error=READ_ONLY_MESSAGE)
+    if (refusal := _reject_builtin(name, request)) is not None:
+        return refusal
     if MAIN_HOST:
         try:
             resp = curl_client.post(
@@ -1119,6 +1148,10 @@ def api_download_tool(name: str, _admin: str | None = Depends(require_admin_api)
 def api_delete_tool(name: str, _admin: str | None = Depends(require_admin_api)):
     if READ_ONLY:
         return JSONResponse(status_code=403, content={"error": READ_ONLY_MESSAGE})
+    if builtin_skills.is_builtin(name):
+        # Also enforced here: a child relay reaches this endpoint directly,
+        # so guarding only the HTML route would leave a hole.
+        return JSONResponse(status_code=403, content={"error": BUILTIN_SKILL_MESSAGE})
 
     config = load_config()
     shared_dir = config.shared_dir_path
@@ -1139,6 +1172,8 @@ def api_edit_doc_skill_description(
 ):
     if READ_ONLY:
         return JSONResponse(status_code=403, content={"error": READ_ONLY_MESSAGE})
+    if builtin_skills.is_builtin(name):
+        return JSONResponse(status_code=403, content={"error": BUILTIN_SKILL_MESSAGE})
 
     config = load_config()
     shared_dir = config.shared_dir_path

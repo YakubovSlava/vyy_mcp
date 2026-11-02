@@ -230,6 +230,23 @@
     .exec-badge.is-exec { color: #1E8E5A; background: #E4F5EC; }
     .exec-badge.is-read { color: var(--muted); background: #F1F2F5; }
 
+    /* Built-in skills: present in every deployment, restored if deleted, and
+       not editable -- greyed out so the row reads as "not yours" at a glance. */
+    .skill-row.is-builtin { background: #FAFAFB; }
+    .skill-row.is-builtin .skill-name { color: var(--muted); }
+    .builtin-badge {
+      font-size: 0.62rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: #6B7280;
+      background: #EDEEF1;
+      border-radius: 4px;
+      padding: 0.05rem 0.35rem;
+      flex-shrink: 0;
+      cursor: help;
+    }
+
     .skill-kind {
       font-size: 0.72rem;
       border-radius: 999px;

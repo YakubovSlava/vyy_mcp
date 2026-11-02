@@ -22,7 +22,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from ..common import groups as group_store
-from ..common import registry, users
+from ..common import builtin_skills, registry, users
 from ..common.config import load_config
 from ..common.doc_skill import DocSkillManifest
 from ..common.loader import load_entrypoint
@@ -186,6 +186,11 @@ def sync_tools(app: FastMCP, shared_dir: Path) -> None:
     # the connection *after* that one will, once some session's lifespan
     # has had a chance to refresh this attribute first.
     app._mcp_server.instructions = load_config().effective_instructions
+
+    # Restore any missing built-in skill before scanning. Cheap (a stat per
+    # built-in) and idempotent, and it's what makes them self-healing if the
+    # folder is deleted underneath us.
+    builtin_skills.ensure_builtin_skills(shared_dir)
 
     manifests = {m.name: m for m in registry.list_tools(shared_dir)}
     real_groups = {g.name: g for g in group_store.list_groups(shared_dir)}

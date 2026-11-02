@@ -2109,3 +2109,43 @@
 - Verified by rendering the real page with one code and one doc skill
   installed: `badge=exec skill=greet`, `badge=read skill=guide`, each with
   its own explanation. Admin UI restarted on the new code.
+
+## 2026-11-02 (built-in `skill_builder` helper: how to write a skill, always present)
+
+- Per request ("сделай универсальный скилл, который поможет сделать скиллы
+  двух типов... дефолтно должны появляться, серые, не редактируемые"):
+  added `common/builtin_skills.py` plus a built-in doc skill `skill_builder`
+  that tells an agent which kind of skill to pick, the exact validation
+  rules for both, and how to call `create_skill`, so it stops guessing at
+  the archive format. Verified end to end through a real MCP session: the
+  agent read it and created one doc skill and one code skill from it, both
+  of which then appeared in `tools/list` and executed correctly.
+- Design: built-ins are **ordinary folders on disk**, identified only by
+  name (`is_builtin`). No special-casing in `sync_tools()` — they're picked
+  up by the normal scan, so there's one code path for every skill.
+  `ensure_builtin_skills()` writes back anything missing and is idempotent
+  (a second call rewrites nothing, which matters because it runs on every
+  sync tick and every admin page render — rewriting would manufacture a git
+  commit every five seconds). Existing copies are never overwritten, so a
+  hand-edited built-in survives.
+- UI: greyed row, `встроенный` badge, and no Edit/Delete controls. Guarded
+  on **both** the HTML routes and the JSON API — a child relay calls the
+  API directly, so guarding only the HTML side would leave a hole.
+- The content deliberately includes the trap found earlier today: a code
+  skill doing `from lib.util import ...` passes validation and dies at call
+  time because the skill's folder isn't on `sys.path`. The helper says to
+  keep everything in one file and shows the working `__file__` pattern for
+  reading adjacent data files.
+- Two things worth recording from the verification: the sync loop lives
+  inside a session's lifespan, so with no client connected and no admin page
+  open nothing ticks — a hand-deleted built-in returns on the next
+  connection or page load, not within 5s. And restoring is confirmed to work
+  (it did return, and the folder was recreated with its content).
+- Also fixed a test that had been passing vacuously:
+  `test_edit_description_missing_skill_shows_error` asserted "не установлен",
+  which matched the empty-state text "Навыки пока не установлены" rather
+  than the error banner. It only broke once a built-in skill made that empty
+  state disappear. Now asserts `"is not installed"` and the error banner.
+- 15 new tests in `test_builtin_skills.py`; ~11 existing tests updated where
+  they asserted an exact tool list that now always includes the built-in.
+  Full suite: 322/322.
