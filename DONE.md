@@ -2087,3 +2087,25 @@
 - Verified against the running streamable-http server with a real `mcp` SDK
   client: `initialize` returned the new instructions, `tools/list` showed
   `[exec] create_skill` and `[read] [networking] my-grouped-skill`.
+
+## 2026-11-02 (visible exec/read badge in the Skills list)
+
+- Follow-up question: "как понять, что навык исполняемый или нет? В админке
+  написано?" Answer was "yes, but badly": the Skills list had a badge, but
+  it lived inside the hover tooltip and said `код` / `SKILL.md` — the file
+  format, not the behaviour, and invisible unless you hovered. Worse, the
+  admin UI and the agent used different vocabularies for the same fact
+  (`код` vs `[exec]`).
+- Now each row carries an inline badge next to the skill name using the
+  **same word the agent sees in `tools/list`** — `exec` (green) or `read`
+  (grey) — with a tooltip spelling out the consequence ("вызов исполняет
+  реальный код на сервере" / "только возвращает текст..."). One vocabulary
+  on both sides, and no hover needed to answer the question.
+- The hover tooltip keeps its `код`/`SKILL.md` chip: that one is genuinely
+  about the bundle format, which is still useful when deciding how to edit
+  a skill.
+- 3 tests in `test_admin_api.py` (exec badge for a code skill, read badge
+  for a doc skill, tooltip text present). Full suite: 307/307.
+- Verified by rendering the real page with one code and one doc skill
+  installed: `badge=exec skill=greet`, `badge=read skill=guide`, each with
+  its own explanation. Admin UI restarted on the new code.

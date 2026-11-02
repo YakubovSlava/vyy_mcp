@@ -209,8 +209,26 @@
     .skill-tooltip .tt-title .skill-kind, .skill-tooltip .tt-title .skill-group { background: rgba(255,255,255,0.14); color: #fff; }
     .skill-tooltip .tt-desc { color: #D7D8DC; white-space: normal; }
 
-    .skill-name { font-weight: 600; font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .skill-name { font-weight: 600; font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
     .skill-desc { color: var(--muted); font-size: 0.88rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* Matches the [exec]/[read] markers an agent sees in tools/list, so the
+       same word means the same thing on both sides -- the old "код" /
+       "SKILL.md" badge described the file format instead of the behaviour,
+       and was only visible on hover. */
+    .exec-badge {
+      font-size: 0.62rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-weight: 600;
+      border-radius: 4px;
+      padding: 0.05rem 0.35rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      flex-shrink: 0;
+      cursor: help;
+    }
+    .exec-badge.is-exec { color: #1E8E5A; background: #E4F5EC; }
+    .exec-badge.is-read { color: var(--muted); background: #F1F2F5; }
 
     .skill-kind {
       font-size: 0.72rem;

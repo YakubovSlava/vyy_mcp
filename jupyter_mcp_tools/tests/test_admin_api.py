@@ -702,3 +702,42 @@ def test_api_create_group_returns_403_in_read_only_mode(read_only_client):
 def test_groups_nav_link_present(client):
     r = client.get("/")
     assert 'href="groups"' in r.text
+
+
+# --------------------------------------------------------------------------
+# exec/read badge: same vocabulary the agent sees in tools/list
+# --------------------------------------------------------------------------
+
+
+def test_skills_list_shows_an_exec_badge_for_code_skills(client, tmp_path):
+    """"код"/"SKILL.md" described the file format and was only visible on
+    hover; the badge now states the behaviour, with the same word an agent
+    sees in the tool description."""
+    client.post("/config/shared-dir", data={"path": str(tmp_path / "shared")})
+    client.post("/tools/upload", files={"archive": ("greet.zip", _archive_bytes(tmp_path), "application/zip")})
+
+    html = client.get("/").text
+    assert "exec-badge is-exec" in html
+    assert ">exec</span>" in html
+
+
+def test_skills_list_shows_a_read_badge_for_doc_skills(client, tmp_path):
+    client.post("/config/shared-dir", data={"path": str(tmp_path / "shared")})
+    client.post(
+        "/tools/create-doc-skill",
+        data={"name": "guide", "description": "Explains things.", "body": "# G\n", "group": ""},
+    )
+
+    html = client.get("/").text
+    assert "exec-badge is-read" in html
+    assert ">read</span>" in html
+
+
+def test_badge_explains_itself_on_hover(client, tmp_path):
+    """A one-word badge with no explanation is a riddle; the tooltip is
+    what makes it readable."""
+    client.post("/config/shared-dir", data={"path": str(tmp_path / "shared")})
+    client.post("/tools/upload", files={"archive": ("greet.zip", _archive_bytes(tmp_path), "application/zip")})
+
+    html = client.get("/").text
+    assert "исполняет реальный код" in html

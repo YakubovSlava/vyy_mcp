@@ -717,6 +717,12 @@ would invite an agent to rely on it as a way to run a script. A group's
 dispatcher tool carries no single marker for the same reason — a group can
 mix both kinds, so its own listing marks each member individually.
 
+**The Skills tab shows the same badge inline**, next to each skill's name,
+with a tooltip spelling out the consequence — so an admin reads the same
+`exec`/`read` word the agent does, without hovering. (It used to show
+`код` / `SKILL.md` in the hover tooltip only, which described the file
+format rather than the behaviour.)
+
 Takes effect without restarting the MCP server (the field is re-read on
 every sync tick), with one caveat: a connection already in flight at the
 exact moment you save won't see the change — only the connection after

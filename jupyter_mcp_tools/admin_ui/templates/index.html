@@ -49,7 +49,11 @@
     {% for t in tools %}
     <div class="skill-row" data-search="{{ (t.name + ' ' + t.description + ' ' + (t.group or '')) | lower }}">
       <span class="skill-group{{ '' if t.group else ' none' }}">{{ t.group or "без категории" }}</span>
-      <span class="skill-name">{{ t.name }}</span>
+      <span class="skill-name">
+        <span class="exec-badge {{ 'is-exec' if t.kind != 'doc' else 'is-read' }}"
+              title="{{ 'Вызов исполняет реальный код на сервере' if t.kind != 'doc' else 'Только возвращает текст (инструкции/файлы), ничего не исполняет' }}">{{ 'exec' if t.kind != 'doc' else 'read' }}</span>
+        {{ t.name }}
+      </span>
       <span class="skill-desc">{{ t.description }}</span>
       <div class="skill-tooltip">
         <div class="tt-title">
