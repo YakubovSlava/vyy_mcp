@@ -2318,3 +2318,33 @@
 - Verified by rendering the real Skills page with the live skill set: rows
   now contain only `skill-name` + `skill-desc`, and `без категории` appears
   only inside popups. Full suite: 387/387.
+
+## 2026-11-02 (skill detail: hover popup became a click-to-open modal)
+
+- Per request: replaced the hover tooltip with a modal opened by clicking the
+  row. A hover popup was the wrong affordance for actions — you had to keep
+  the pointer inside it to reach a button, and it vanished on the way to the
+  dialog it opened.
+- Each row is now a `<button>` (keyboard-reachable, which the hover popup
+  never was) carrying the facts as `data-*` attributes. Clicking opens one
+  shared modal that shows name, description, `exec`/`read`, kind and
+  category, plus **Скачать / Переименовать / Редактировать / Удалить** —
+  the actions moved out of the row entirely, so the list is now just
+  `name | description` in two columns.
+- The modal hides mutating buttons for a built-in skill and in read-only
+  mode at render time rather than showing them and refusing on click; a
+  built-in additionally gets an explicit note explaining why. Download stays
+  available in both cases, since it's not a mutation.
+- "Редактировать" appears only for doc skills, matching the underlying rule:
+  a code skill's description/group are its docstring and `__group__`.
+- The modal closes on backdrop click. `dialog` reports a click on its own
+  padding as a click on the dialog element, so the handler compares against
+  `getBoundingClientRect()` — otherwise clicking the dialog's edge closed it.
+- Removed the now-dead tooltip CSS (~30 lines) and the stale comment about
+  `.card`'s `overflow` that existed only to avoid clipping it.
+- 7 existing tests updated where they asserted the old markup (inline chips,
+  inline action forms, `openEditDescription` in the row). The escaping
+  regression test — that a description containing quotes can't break the
+  handler — was kept, retargeted at the row's `data-*` attributes, which is
+  where that contract lives now.
+- Full suite: 387/387. Both processes restarted on the new code.

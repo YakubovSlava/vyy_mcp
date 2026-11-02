@@ -427,31 +427,29 @@ def test_edit_button_data_attributes_survive_quotes_in_description(client, tmp_p
     )
 
     r = client.get("/")
-    assert 'onclick="openEditDescription(this)"' in r.text
-    assert "data-name=\"doc-skill\"" in r.text
+    # The row carries the values as data-* attributes (HTML-escaped by Jinja)
+    # and a single fixed handler; the modal reads them via .dataset.
+    assert 'onclick="openSkillDetails(this)"' in r.text
+    assert 'data-name="doc-skill"' in r.text
     assert "&#34;tricky&#34;" in r.text or "&#x27;" in r.text or "&#39;" in r.text
 
 
-def test_skill_row_keeps_detail_in_the_popup_only(client, tmp_path):
-    """The row shows just the name; category, kind and exec/read live in the
-    hover popup. Repeating them per row ate a third of the width and made
-    descriptions truncate."""
+def test_skill_row_shows_only_name_and_description(client, tmp_path):
+    """The row is a button that opens a modal; all detail and all actions live
+    there. Repeating them per row said the same thing N times and cost the
+    width that descriptions needed."""
     data = _archive_bytes(tmp_path)
     client.post("/tools/upload", files={"archive": ("greet.zip", data, "application/zip")})
 
     r = client.get("/")
-    assert "без категории" in r.text
-    # Exactly one kind chip per skill -- inside the popup, not the row.
-    assert r.text.count('class="skill-kind kind-code">код</span>') == 1
-
-    # And the category marker sits inside the tooltip block, not before the
-    # name in the row body.
-    row_start = r.text.index('class="skill-row')
-    tooltip_start = r.text.index('class="skill-tooltip"')
-    name_start = r.text.index('class="skill-name"')
-    category_start = r.text.index("без категории")
-    assert name_start < tooltip_start < category_start, "category should be in the popup"
-    assert category_start > row_start
+    # The row carries the facts as data attributes for the modal to read...
+    assert 'data-kind="code"' in r.text
+    assert 'data-group=""' in r.text
+    assert 'data-description=' in r.text
+    # ...but renders none of the chips inline, and no action buttons.
+    assert "exec-badge is-exec" not in r.text
+    assert "skill-tooltip" not in r.text
+    assert 'onclick="openSkillDetails(this)"' in r.text
 
 
 def test_skill_row_shows_real_category_when_group_set(client, tmp_path):
@@ -463,14 +461,15 @@ def test_skill_row_shows_real_category_when_group_set(client, tmp_path):
     )
 
     r = client.get("/")
-    assert 'class="skill-group">networking</span>' in r.text
-    # The built-in helper is ungrouped and legitimately shows "без
-    # категории", so assert per-row instead of on the whole page.
+    # Delivered to the modal through data-group rather than rendered inline.
+    assert 'data-group="networking"' in r.text
+    # Assert on this skill's own row: the built-in helper alongside it is
+    # legitimately ungrouped.
     import re
 
-    row = re.search(r'<div class="skill-row[^"]*"[^>]*>.*?doc-skill.*?</div>\s*</div>', r.text, re.S)
+    row = re.search(r'<button[^>]*class="skill-row[^"]*"[^>]*data-name="doc-skill"[^>]*>', r.text, re.S)
     assert row, "doc-skill row not found"
-    assert 'class="skill-group">networking</span>' in row.group(0)
+    assert 'data-group="networking"' in row.group(0)
 
 
 def test_edit_description_rejects_code_skill(client, tmp_path):
@@ -566,7 +565,10 @@ def test_read_only_hides_mutating_buttons(read_only_client):
     r = read_only_client.get("/")
     assert "Только просмотр" in r.text
     assert 'onclick="addSkillDialog.showModal()"' not in r.text
-    assert "Удалить" not in r.text
+    # The modal's mutating buttons are removed at render time when read-only
+    # (the template bakes the flag into the JS), rather than relying on the
+    # click handler to refuse later.
+    assert "const canMutate = !builtin && !true;" in r.text
 
 
 def test_read_only_json_api_returns_403(read_only_client, tmp_path):
@@ -743,8 +745,10 @@ def test_skills_list_shows_an_exec_badge_for_code_skills(client, tmp_path):
     client.post("/tools/upload", files={"archive": ("greet.zip", _archive_bytes(tmp_path), "application/zip")})
 
     html = client.get("/").text
-    assert "exec-badge is-exec" in html
-    assert ">exec</span>" in html
+    # The badge markup lives in the modal template, filled in from
+    # data-kind; the row itself carries the kind.
+    assert 'data-kind="code"' in html
+    assert 'id="sdExec"' in html
 
 
 def test_skills_list_shows_a_read_badge_for_doc_skills(client, tmp_path):
@@ -755,8 +759,8 @@ def test_skills_list_shows_a_read_badge_for_doc_skills(client, tmp_path):
     )
 
     html = client.get("/").text
-    assert "exec-badge is-read" in html
-    assert ">read</span>" in html
+    assert 'data-kind="doc"' in html
+    assert 'id="sdExec"' in html
 
 
 def test_badge_explains_itself_on_hover(client, tmp_path):

@@ -157,11 +157,9 @@
       border: 1px solid var(--border);
       border-radius: var(--radius);
     }
-    /* No `overflow: hidden` on .card — that would also clip the
-       absolutely-positioned .skill-tooltip (a descendant of .skill-row,
-       a descendant of .card) at the card's edges. Rows have no
-       background of their own (they inherit the card's), so there's
-       nothing visually relying on that clipping — round the first/last
+    /* No `overflow: hidden` on .card — rows have no background of their
+       own (they inherit the card's), so there's nothing visually relying on
+       that clipping — round the first/last
        row's own corners instead, to match. */
     .card > :first-child { border-top-left-radius: var(--radius); border-top-right-radius: var(--radius); }
     .card > :last-child { border-bottom-left-radius: var(--radius); border-bottom-right-radius: var(--radius); }
@@ -180,13 +178,38 @@
        .skill-row above with a different, smaller set of columns) --
        scoped so the fixed-width category/name columns here don't
        affect those other rows. */
-    /* Category, kind and marker moved into the hover popup: repeating the
-       group on every row ate a third of the width without adding much —
-       the popup is where the per-skill detail belongs. */
+    /* Two columns now: name, description. Every action and every badge lives
+       in the modal a row opens, so the list stays a scannable column. */
     .skills-card .skill-row {
       display: grid;
-      grid-template-columns: minmax(180px, 22%) 1fr auto;
+      grid-template-columns: minmax(180px, 24%) 1fr;
     }
+
+    /* Rows are buttons (they open the detail modal), so reset the native
+       button look while keeping the row's own layout. */
+    button.skill-row {
+      width: 100%;
+      background: none;
+      border: none;
+      border-bottom: 1px solid var(--border);
+      border-radius: 0;
+      font: inherit;
+      color: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+    button.skill-row:last-of-type { border-bottom: none; }
+    button.skill-row:focus-visible { outline: 2px solid var(--mj-blue); outline-offset: -2px; }
+    button.skill-row:hover { background: #F4F5F7; }
+
+    /* Detail modal opened from a row. */
+    .sd-badges { display: flex; align-items: center; gap: 0.45rem; margin-bottom: 0.9rem; flex-wrap: wrap; }
+    .sd-desc { color: var(--ink); font-size: 0.9rem; line-height: 1.5; margin: 0 0 1rem; }
+    .sd-note { color: var(--muted); font-size: 0.82rem; background: #F6F7F9; border-radius: 8px; padding: 0.6rem 0.8rem; margin: 0 0 1rem; }
+    .sd-spacer { flex: 1; }
+    #skillDetailDialog .dialog-actions { flex-wrap: wrap; }
+    .btn.danger { color: var(--danger); }
+    .btn.danger:hover { background: var(--danger-bg); }
 
     .skill-actions {
       display: flex;
@@ -194,34 +217,6 @@
       gap: 0.3rem;
       justify-self: end;
     }
-
-    .skill-tooltip {
-      position: absolute;
-      top: calc(100% - 1px);
-      left: 1.25rem;
-      right: 1.25rem;
-      z-index: 20;
-      background: var(--ink);
-      color: #fff;
-      padding: 0.8rem 1rem;
-      border-radius: 10px;
-      font-size: 0.82rem;
-      line-height: 1.5;
-      box-shadow: 0 12px 32px rgba(20, 20, 22, 0.28);
-      opacity: 0;
-      visibility: hidden;
-      transform: translateY(-4px);
-      transition: opacity 0.12s ease, transform 0.12s ease;
-      pointer-events: none;
-    }
-    .skill-row:hover .skill-tooltip {
-      opacity: 1;
-      visibility: visible;
-      transform: translateY(0);
-    }
-    .skill-tooltip .tt-title { font-weight: 600; margin-bottom: 0.3rem; display: flex; align-items: center; gap: 0.5rem; }
-    .skill-tooltip .tt-title .skill-kind, .skill-tooltip .tt-title .skill-group { background: rgba(255,255,255,0.14); color: #fff; }
-    .skill-tooltip .tt-desc { color: #D7D8DC; white-space: normal; }
 
     .skill-name { font-weight: 600; font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
     .skill-desc { color: var(--muted); font-size: 0.88rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

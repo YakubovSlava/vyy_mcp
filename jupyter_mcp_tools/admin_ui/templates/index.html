@@ -47,38 +47,25 @@
 <div class="card skills-card">
   {% if tools %}
     {% for t in tools %}
-    <div class="skill-row{{ ' is-builtin' if t.builtin else '' }}" data-search="{{ (t.name + ' ' + t.description + ' ' + (t.group or '')) | lower }}">
-      {# The row keeps only the name; category, kind, exec/read and the
-         built-in flag live in the hover popup — repeating them on every row
-         cost a third of the width and made descriptions truncate. #}
+    {# The row is a button: everything about a skill (category, kind,
+       exec/read, description) and every action lives in the modal it opens.
+       Repeating them inline cost a third of the width, and the hover popup
+       made the actions awkward to reach with a mouse. #}
+    <button type="button"
+            class="skill-row{{ ' is-builtin' if t.builtin else '' }}"
+            data-search="{{ (t.name + ' ' + t.description + ' ' + (t.group or '')) | lower }}"
+            data-name="{{ t.name }}"
+            data-description="{{ t.description }}"
+            data-group="{{ t.group or '' }}"
+            data-kind="{{ t.kind }}"
+            data-builtin="{{ 1 if t.builtin else 0 }}"
+            onclick="openSkillDetails(this)">
       <span class="skill-name">
         {{ t.name }}
-        {% if t.builtin %}<span class="builtin-badge" title="Встроенный навык: восстанавливается автоматически, изменить или удалить нельзя">встроенный</span>{% endif %}
+        {% if t.builtin %}<span class="builtin-badge">встроенный</span>{% endif %}
       </span>
       <span class="skill-desc">{{ t.description }}</span>
-      <div class="skill-tooltip">
-        <div class="tt-title">
-          <span>{{ t.name }}</span>
-          <span class="exec-badge {{ 'is-exec' if t.kind != 'doc' else 'is-read' }}"
-                title="{{ 'Вызов исполняет реальный код на сервере' if t.kind != 'doc' else 'Только возвращает текст (инструкции/файлы), ничего не исполняет' }}">{{ 'exec' if t.kind != 'doc' else 'read' }}</span>
-          <span class="skill-kind kind-{{ t.kind }}">{{ "SKILL.md" if t.kind == "doc" else "код" }}</span>
-          <span class="skill-group{{ '' if t.group else ' none' }}">{{ t.group or "без категории" }}</span>
-        </div>
-        <div class="tt-desc">{{ t.description }}</div>
-      </div>
-      <div class="skill-actions">
-        <a class="edit-btn" href="tools/{{ t.name }}/download" title="Скачать .zip с этим навыком">Скачать</a>
-        {% if not read_only and not t.builtin %}
-        <button type="button" class="edit-btn" data-name="{{ t.name }}" onclick="openRenameSkill(this)">Переименовать</button>
-        {% if t.kind == "doc" %}
-        <button type="button" class="edit-btn" data-name="{{ t.name }}" data-description="{{ t.description }}" data-group="{{ t.group or '' }}" onclick="openEditDescription(this)">Редактировать</button>
-        {% endif %}
-        <form method="post" action="tools/{{ t.name }}/delete" onsubmit="return confirm('Удалить {{ t.name }} для всех пользователей?');">
-          <button type="submit" class="remove-btn">Удалить</button>
-        </form>
-        {% endif %}
-      </div>
-    </div>
+    </button>
     {% endfor %}
     <div class="empty-state" id="skillSearchEmpty" style="display:none;">Ничего не найдено по этому запросу.</div>
   {% else %}
@@ -217,6 +204,30 @@
   </form>
 </dialog>
 
+<dialog id="skillDetailDialog" class="wide">
+  <div class="dialog-body">
+    <h3 id="sdName"></h3>
+    <div class="sd-badges">
+      <span id="sdExec" class="exec-badge"></span>
+      <span id="sdKind" class="skill-kind"></span>
+      <span id="sdGroup" class="skill-group"></span>
+      <span id="sdBuiltin" class="builtin-badge" style="display:none">встроенный</span>
+    </div>
+    <p id="sdDescription" class="sd-desc"></p>
+    <p id="sdBuiltinNote" class="sd-note" style="display:none">
+      Встроенный навык: восстанавливается автоматически, поэтому его нельзя изменить, переименовать или удалить.
+    </p>
+    <div class="dialog-actions">
+      <a id="sdDownload" class="btn ghost" href="#">Скачать</a>
+      <span class="sd-spacer"></span>
+      <button type="button" class="btn ghost" onclick="skillDetailDialog.close()">Закрыть</button>
+      <button type="button" id="sdRename" class="btn ghost">Переименовать</button>
+      <button type="button" id="sdEdit" class="btn ghost">Редактировать</button>
+      <button type="button" id="sdDelete" class="btn danger">Удалить</button>
+    </div>
+  </div>
+</dialog>
+
 <dialog id="renameSkillDialog">
   <form method="post" id="renameSkillForm" class="dialog-body">
     <h3>Переименовать навык</h3>
@@ -271,6 +282,89 @@
     document.getElementById("editGroupInput").value = btn.dataset.group || "";
     editDescriptionDialog.showModal();
   }
+
+  // One modal for every skill: the row is a button, and all detail plus all
+  // actions live here. Cheaper than a per-row dialog and keeps the list a
+  // plain scannable column, which is what the width problem was really about.
+  let currentSkill = null;
+
+  function openSkillDetails(btn) {
+    const d = btn.dataset;
+    currentSkill = d.name;
+
+    document.getElementById("sdName").textContent = d.name;
+    document.getElementById("sdDescription").textContent = d.description;
+
+    const isDoc = d.kind === "doc";
+    const exec = document.getElementById("sdExec");
+    exec.textContent = isDoc ? "read" : "exec";
+    exec.className = "exec-badge " + (isDoc ? "is-read" : "is-exec");
+    exec.title = isDoc
+      ? "Только возвращает текст (инструкции/файлы), ничего не исполняет"
+      : "Вызов исполняет реальный код на сервере";
+
+    const kind = document.getElementById("sdKind");
+    kind.textContent = isDoc ? "SKILL.md" : "код";
+    kind.className = "skill-kind kind-" + d.kind;
+
+    const group = document.getElementById("sdGroup");
+    group.textContent = d.group || "без категории";
+    group.className = "skill-group" + (d.group ? "" : " none");
+
+    const builtin = d.builtin === "1";
+    document.getElementById("sdBuiltin").style.display = builtin ? "" : "none";
+    document.getElementById("sdBuiltinNote").style.display = builtin ? "" : "none";
+
+    // Download stays available even for a built-in (it's not a mutation) and
+    // in read-only mode; the three mutating actions are hidden entirely
+    // rather than shown-then-refused.
+    document.getElementById("sdDownload").href = "tools/" + encodeURIComponent(d.name) + "/download";
+    const canMutate = !builtin && !{{ 'true' if read_only else 'false' }};
+    document.getElementById("sdRename").style.display = canMutate ? "" : "none";
+    document.getElementById("sdDelete").style.display = canMutate ? "" : "none";
+    // Only doc skills have editable description/group; a code skill's are its
+    // docstring and __group__ in the source.
+    document.getElementById("sdEdit").style.display = canMutate && isDoc ? "" : "none";
+
+    skillDetailDialog.showModal();
+  }
+
+  document.getElementById("sdRename").addEventListener("click", () => {
+    skillDetailDialog.close();
+    openRenameSkill({ dataset: { name: currentSkill } });
+  });
+
+  document.getElementById("sdEdit").addEventListener("click", () => {
+    const row = document.querySelector('.skill-row[data-name="' + CSS.escape(currentSkill) + '"]');
+    skillDetailDialog.close();
+    openEditDescription({
+      dataset: {
+        name: currentSkill,
+        description: row ? row.dataset.description : "",
+        group: row ? row.dataset.group : "",
+      },
+    });
+  });
+
+  document.getElementById("sdDelete").addEventListener("click", () => {
+    if (!confirm("Удалить " + currentSkill + " для всех пользователей?")) return;
+    const form = document.createElement("form");
+    form.method = "post";
+    form.action = "tools/" + encodeURIComponent(currentSkill) + "/delete";
+    document.body.appendChild(form);
+    form.submit();
+  });
+
+  // Click on the backdrop closes the modal. `dialog` reports a click on its
+  // own padding as a click on the dialog element, so compare against the box.
+  skillDetailDialog.addEventListener("click", (event) => {
+    if (event.target !== skillDetailDialog) return;
+    const r = skillDetailDialog.getBoundingClientRect();
+    const outside =
+      event.clientX < r.left || event.clientX > r.right ||
+      event.clientY < r.top || event.clientY > r.bottom;
+    if (outside) skillDetailDialog.close();
+  });
 
   function openRenameSkill(btn) {
     const name = btn.dataset.name;

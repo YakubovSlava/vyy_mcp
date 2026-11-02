@@ -125,20 +125,23 @@ def test_shown_in_the_list_with_a_builtin_badge(admin_client, tmp_path):
     assert "встроенный" in html
 
 
-def test_no_edit_or_delete_controls_for_a_builtin(admin_client, tmp_path):
+def test_builtin_row_is_marked_and_carries_the_flag(admin_client, tmp_path):
+    """Actions live in one shared modal now, so the per-row assertion is that
+    the row is flagged `builtin` — the modal reads `data-builtin` and hides
+    the mutating buttons for it."""
     admin_client.post("/config/shared-dir", data={"path": str(tmp_path / "shared")})
     html = admin_client.get("/").text
     assert "skill_builder" in html
 
-    # Isolate the built-in's own row and assert on that, rather than on the
-    # whole page (other rows legitimately carry these controls).
     import re
 
-    rows = re.findall(r'<div class="skill-row[^"]*"[^>]*>(.*?)</div>\s*</div>', html, re.S)
-    builtin_row = next(r for r in rows if "skill_builder" in r)
-    assert "tools/skill_builder/delete" not in builtin_row
-    assert "openEditDescription" not in builtin_row
-    assert "встроенный" in builtin_row
+    # The whole row element, not just its opening tag: the badge is inside.
+    row = re.search(
+        r'<button[^>]*data-name="skill_builder".*?</button>', html, re.S
+    )
+    assert row, "builtin row not found"
+    assert 'data-builtin="1"' in row.group(0)
+    assert "встроенный" in row.group(0)
 
 
 def test_delete_refused_for_a_builtin(admin_client, tmp_path):
