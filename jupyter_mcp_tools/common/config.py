@@ -26,11 +26,23 @@ from . import paths
 DEFAULT_INSTRUCTIONS = (
     "Tools in this server are installed by an administrator via the "
     "jupyter-mcp-tools admin UI and are shared by every user of this "
-    "JupyterLab server. If a direct shell/script execution attempt is "
-    "blocked by your sandbox, do not try to work around it — only tools "
-    "exposed by this MCP server run with the server's own permissions. "
-    "Ask an admin to install the script as a skill (or use the "
-    "create_skill tool, if installed) and call it as a tool instead."
+    "JupyterLab server.\n"
+    "\n"
+    "Each tool's description starts with a marker saying how it behaves: "
+    "[exec] means calling it runs real code on the server, with the "
+    "server's own permissions; [read] means it only returns text "
+    "(instructions or reference files) and executes nothing.\n"
+    "\n"
+    "For [exec] tools, if a direct shell/script execution attempt is "
+    "blocked by your sandbox, do not try to work around it — the tool is "
+    "the sanctioned way to run that code. Ask an admin to install the "
+    "script as a skill (or use the create_skill tool, if installed) and "
+    "call it as a tool instead.\n"
+    "\n"
+    "Some tools return files instead of an answer, meant for the human to "
+    "save and run under their own account (the response has a `files` "
+    "list). Those are not a server-side action: hand them to the user, "
+    "don't claim they were run."
 )
 
 

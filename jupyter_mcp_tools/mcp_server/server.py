@@ -32,6 +32,25 @@ logger = logging.getLogger("jupyter_mcp_tools.server")
 
 SYNC_INTERVAL_SECONDS = 5.0
 
+# Per-tool markers telling an agent how a skill actually behaves, prepended
+# to its MCP description so it's visible in `tools/list` without calling
+# anything. These exist because the two skill kinds are genuinely different
+# and a blanket "everything here is executable" would be a lie:
+#
+# - A code skill really runs Python on this server, with the server's own
+#   permissions — so an agent's own sandboxed shell being blocked is not a
+#   reason to give up.
+# - A doc skill only reads text back. Nothing is executed, so it cannot
+#   stand in for "run this script".
+#
+# (And a code skill built on `common.skill_results.files_result()` returns
+# files for the *human* to run under their own account — the tool itself
+# still executed, but the end result isn't a server-side action. That's
+# documented in the instructions, not per-tool, since it's a property of a
+# skill's output rather than a separate kind.)
+EXEC_MARKER = "[exec]"
+READ_MARKER = "[read]"
+
 
 def _make_doc_skill_tool(shared_dir: Path, manifest: DocSkillManifest):
     """Build the callable registered for a doc skill (SKILL.md bundle).
@@ -115,7 +134,11 @@ def _make_group_tool(shared_dir: Path, group_manifests: dict[str, AnyManifest]):
         if not skill:
             lines = []
             for name, manifest in sorted(group_manifests.items()):
-                lines.append(f"- {name}: {manifest.description}")
+                # Marked individually: a group may mix executable code skills
+                # with read-only doc skills, so the group tool itself can't
+                # honestly carry one marker -- see the module-level markers above.
+                marker = READ_MARKER if isinstance(manifest, DocSkillManifest) else EXEC_MARKER
+                lines.append(f"- {marker} {name}: {manifest.description}")
                 lines.append(f"    arguments: {_param_hint(shared_dir, manifest)}")
             listing = "\n".join(lines) or "(no skills)"
             return f"Skills in this group:\n{listing}\n\nCall again with skill=\"<name>\" (and arguments={{...}} if it takes any) to use one."
@@ -196,7 +219,12 @@ def sync_tools(app: FastMCP, shared_dir: Path) -> None:
         # name, updated code) take effect without a server restart.
         if name in existing_names:
             app.remove_tool(name)
-        description = f"[{manifest.group}] {manifest.description}" if manifest.group else manifest.description
+        prefix = f"[{manifest.group}] " if manifest.group else ""
+        # The marker goes first, before the group prefix: agents read the
+        # description from the front, and "does this actually run anything"
+        # is the more consequential fact than which category it belongs to.
+        marker = READ_MARKER if isinstance(manifest, DocSkillManifest) else EXEC_MARKER
+        description = f"{marker} {prefix}{manifest.description}"
         app.add_tool(entrypoint, name=manifest.name, description=description)
         logger.info("registered tool: %s (group=%r)", manifest.name, manifest.group)
 
@@ -204,6 +232,8 @@ def sync_tools(app: FastMCP, shared_dir: Path) -> None:
         tool_name = f"group_{group_name}"
         if tool_name in existing_names:
             app.remove_tool(tool_name)
+        # A group can mix both kinds, so it gets no single marker — its own
+        # listing marks each skill individually instead (see _make_group_tool).
         app.add_tool(
             _make_group_tool(shared_dir, group_manifests),
             name=tool_name,

@@ -140,7 +140,9 @@ def test_sync_prefixes_description_with_group(make_archive, shared_dir):
     sync_tools(app, shared_dir)
 
     tools = app._tool_manager.list_tools()
-    assert tools[0].description.startswith("[networking] ")
+    # Marker first, then the group prefix: "does this run code" is the more
+    # consequential fact for an agent than which category it belongs to.
+    assert tools[0].description.startswith("[exec] [networking] ")
 
 
 def test_sync_no_group_prefix_when_group_is_empty(make_archive, shared_dir):
@@ -151,7 +153,9 @@ def test_sync_no_group_prefix_when_group_is_empty(make_archive, shared_dir):
     sync_tools(app, shared_dir)
 
     tools = app._tool_manager.list_tools()
-    assert not tools[0].description.startswith("[")
+    # An ungrouped code skill starts with the exec marker and nothing else.
+    assert tools[0].description.startswith("[exec] ")
+    assert "[networking]" not in tools[0].description
 
 
 def test_sync_folds_grouped_skills_behind_one_dispatcher_tool(make_archive, shared_dir, tmp_path):
@@ -186,6 +190,11 @@ def test_sync_folds_grouped_skills_behind_one_dispatcher_tool(make_archive, shar
     listing = content[0].text
     assert "greet" in listing and "ping" in listing
     assert "name: str" in listing  # greet's own parameter, surfaced since it has no tool of its own
+    # A group can mix both kinds, so the group tool carries no blanket
+    # marker -- each skill in the listing is marked individually.
+    assert "[exec] greet" in listing
+    assert "[read] ping" in listing
+    assert not group_tool.description.startswith("[exec]")
 
     # Dispatching to the code skill actually runs it.
     content, _ = asyncio.run(app.call_tool("group_networking", {"skill": "greet", "arguments": {"name": "World"}}))
@@ -213,4 +222,75 @@ def test_sync_falls_back_to_standalone_for_unrecognized_group(make_archive, shar
 
     tools = app._tool_manager.list_tools()
     assert [t.name for t in tools] == ["greet"]
-    assert tools[0].description.startswith("[nonexistent] ")
+    assert tools[0].description.startswith("[exec] [nonexistent] ")
+
+
+# --------------------------------------------------------------------------
+# per-tool markers: how an agent learns whether a tool executes anything
+# --------------------------------------------------------------------------
+
+
+def test_code_skill_is_marked_executable(make_archive, shared_dir):
+    """The point of the marker: an agent must be able to tell from
+    `tools/list` alone that calling this runs real code on the server."""
+    from jupyter_mcp_tools.mcp_server.server import EXEC_MARKER
+
+    registry.install_tool(make_archive("greet", VALID_MODULE), shared_dir)
+    app = build_app(shared_dir)
+    sync_tools(app, shared_dir)
+
+    description = app._tool_manager.list_tools()[0].description
+    assert description.startswith(EXEC_MARKER)
+    # The skill's own description must survive intact after the marker.
+    assert "Greets someone by name." in description
+
+
+def test_doc_skill_is_marked_read_only(shared_dir, tmp_path):
+    """Deliberately NOT marked executable: a doc skill only returns text, so
+    a blanket "everything here is executable" would mislead an agent into
+    trusting it as a way to run a script."""
+    from jupyter_mcp_tools.mcp_server.server import READ_MARKER
+
+    doc_archive = tmp_path / "doc.zip"
+    with zipfile.ZipFile(doc_archive, "w") as zf:
+        zf.writestr("SKILL.md", "# Guide\n\nInstructions only.\n")
+    registry.install_tool(
+        doc_archive, shared_dir, name="guide", description="Explains the thing."
+    )
+
+    app = build_app(shared_dir)
+    sync_tools(app, shared_dir)
+
+    description = app._tool_manager.list_tools()[0].description
+    assert description.startswith(READ_MARKER)
+    assert "Explains the thing." in description
+
+
+def test_markers_are_mutually_exclusive_and_always_present(make_archive, shared_dir, tmp_path):
+    from jupyter_mcp_tools.mcp_server.server import EXEC_MARKER, READ_MARKER
+
+    registry.install_tool(make_archive("greet", VALID_MODULE), shared_dir)
+    doc_archive = tmp_path / "doc.zip"
+    with zipfile.ZipFile(doc_archive, "w") as zf:
+        zf.writestr("SKILL.md", "# Guide\n")
+    registry.install_tool(doc_archive, shared_dir, name="guide", description="Explains.")
+
+    app = build_app(shared_dir)
+    sync_tools(app, shared_dir)
+
+    for tool in app._tool_manager.list_tools():
+        has_exec = tool.description.startswith(EXEC_MARKER)
+        has_read = tool.description.startswith(READ_MARKER)
+        assert has_exec != has_read, f"{tool.name} carries neither or both markers"
+
+
+def test_instructions_explain_the_markers(shared_dir):
+    """A marker nobody explains is just noise; the server's `instructions`
+    field is the one thing every connecting agent reads automatically."""
+    app = build_app(shared_dir)
+    sync_tools(app, shared_dir)
+
+    instructions = app.instructions
+    assert "[exec]" in instructions
+    assert "[read]" in instructions
+    assert "files" in instructions  # the "hand these to the human" caveat

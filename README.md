@@ -696,10 +696,26 @@ The "⚙" settings dialog on the Skills page also has a **Системная
 инструкция для агента** textarea — this becomes the MCP server's own
 `instructions` field, which every connecting agent receives
 automatically at `initialize` time, with no action needed from the
-individual user. Useful for standing guidance that applies to everyone,
-e.g. by default it tells the agent: if a direct shell/script execution
-attempt is blocked by its sandbox, don't try to work around it — ask an
-admin to install the script as a skill and call it as a tool instead.
+individual user. Useful for standing guidance that applies to everyone.
+The default text covers three things: what the `[exec]`/`[read]` marker on
+every tool description means, that a sandbox-blocked shell attempt should
+be replaced by calling the `[exec]` skill rather than worked around, and
+that a tool returning a `files` list hands work to the human instead of
+performing it server-side.
+
+**Every tool description starts with a marker**, so an agent can tell from
+`tools/list` alone whether calling something runs code:
+
+| Marker | Meaning |
+|---|---|
+| `[exec]` | calling it runs real Python on the server, with the server's permissions |
+| `[read]` | it only returns text (instructions / reference files); nothing executes |
+
+This is deliberately *not* a blanket "everything here is executable": a
+doc skill (`SKILL.md`) only reads files back, so marking it executable
+would invite an agent to rely on it as a way to run a script. A group's
+dispatcher tool carries no single marker for the same reason — a group can
+mix both kinds, so its own listing marks each member individually.
 
 Takes effect without restarting the MCP server (the field is re-read on
 every sync tick), with one caveat: a connection already in flight at the

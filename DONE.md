@@ -2050,3 +2050,40 @@
   `import jupyter_mcp_tools` under `PYTHONPATH=launcher` resolves to
   `<repo>/launcher/jupyter_mcp_tools/__init__.py`, not to the installed
   package. Full suite: 300/300.
+
+## 2026-11-02 (per-tool [exec]/[read] markers so an agent knows what actually runs)
+
+- Per request: an agent should be able to tell that a tool is executable.
+  Checked what's actually available first rather than inventing a
+  convention: the MCP spec has no "executable" field — `ToolAnnotations`
+  only carries `title`/`readOnlyHint`/`destructiveHint`/`idempotentHint`/
+  `openWorldHint`, none of which mean "runs code on the server", and client
+  support for annotations is inconsistent. So the signal is text in the
+  tool's own `description`, which every client renders in `tools/list`.
+- **Deliberately not a blanket "all tools are executable".** That would
+  have been a lie about half the surface: a code skill really runs Python
+  with the server's permissions, while a doc skill (`SKILL.md`) only reads
+  text back and executes nothing. Marking both `[exec]` would invite an
+  agent to trust a doc skill as a way to run a script. Final design:
+  - `[exec]` — code skill: calling it runs real code server-side;
+  - `[read]` — doc skill: returns text only.
+  The marker precedes the existing `[group]` prefix (`[exec] [networking]
+  …`) because "does this run anything" matters more to an agent than which
+  category it belongs to.
+- A **group** dispatcher gets no single marker: it can mix both kinds, so
+  its own no-argument listing marks each member individually
+  (`- [exec] greet: …` / `- [read] ping: …`). Pinned by a test.
+- `DEFAULT_INSTRUCTIONS` rewritten in the same pass — it still said "only
+  tools exposed by this MCP server run with the server's own permissions",
+  which was true when every tool executed and became wrong the moment doc
+  skills existed. It now explains both markers, keeps the
+  sandbox-blocked-shell guidance scoped to `[exec]` tools, and covers the
+  `files_result()` case explicitly: a tool returning a `files` list hands
+  work to the human, so an agent must not claim it ran anything.
+- 4 new tests in `test_server_sync.py` (code → exec, doc → read, markers
+  mutually exclusive and always present, instructions actually explain
+  them); 3 existing tests updated where they pinned the old description
+  prefix. Full suite: 304/304.
+- Verified against the running streamable-http server with a real `mcp` SDK
+  client: `initialize` returned the new instructions, `tools/list` showed
+  `[exec] create_skill` and `[read] [networking] my-grouped-skill`.
