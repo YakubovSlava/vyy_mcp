@@ -436,15 +436,31 @@ def _remote_list_groups() -> tuple[list[dict], str | None]:
         return [], "Main host returned a response that wasn't valid JSON."
 
 
-def _maybe_git_push(config: AppConfig, shared_dir: Path, commit_message: str) -> str | None:
+def _maybe_git_push(
+    config: AppConfig,
+    shared_dir: Path,
+    commit_message: str,
+    *,
+    required: bool = False,
+) -> str | None:
     """Best-effort git push of `shared_dir` after a skill install/delete/edit.
 
     Returns an error detail string if a push was attempted and failed,
-    `None` otherwise — including when it's not configured at all (see
-    AppConfig.git_push_username/git_push_password). Never raises: a
-    failed push must not block the action that triggered it.
+    `None` otherwise. Never raises: a failed push must not block the action
+    that triggered it.
+
+    `required=True` makes "not configured" an error instead of a silent
+    success. That distinction matters for actions whose entire point is the
+    push — saving `launcher/requirements.txt` from the settings dialog used to
+    report "сохранено" while nothing reached the repository, because an
+    unconfigured push returned `None`, which the caller reads as "fine".
     """
     if not (config.git_push_username and config.git_push_password):
+        if required:
+            return (
+                "git push не настроен — укажите Git-логин и Git-пароль в этих настройках, "
+                "иначе изменения останутся только на этом хосте"
+            )
         return None
     return git_push.push_shared_dir(
         shared_dir,
@@ -866,18 +882,38 @@ def save_launcher_requirements(
     # a silent lie — the textarea would show the default list while the
     # repository still shipped the admin's old pins.
     shared_dir = config.shared_dir_path
-    if shared_dir.is_dir():
-        launcher_bundle.ensure(shared_dir, config.launcher_requirements)
-        push_error = _maybe_git_push(
-            config,
-            shared_dir,
-            "Revert launcher/requirements.txt" if resetting else "Update launcher/requirements.txt",
+    if not shared_dir.is_dir():
+        return _redirect_to_root(request, error=f"Папка навыков не найдена: {shared_dir}")
+
+    # Always write first, then decide what to say about publishing. The other
+    # order produced a message claiming the file was written when the early
+    # return had skipped it.
+    launcher_bundle.ensure(shared_dir, config.launcher_requirements)
+
+    if not (shared_dir / ".git").exists():
+        # A skill directory that isn't a git checkout has no repository to
+        # push to. Saying "saved" here is what made this look like a broken
+        # button: the file was written, and nothing else could have happened.
+        return _redirect_to_root(
+            request,
+            error=(
+                f"Файл записан в {shared_dir}/launcher/requirements.txt, но папка навыков — "
+                "не git-репозиторий, пушить некуда. Настройте её как клон вашего репозитория "
+                "(git init / git remote add), иначе изменения останутся только на этом хосте."
+            ),
         )
-        if push_error:
-            return _redirect_to_root(
-                request,
-                error=f"Сохранено, но git push не выполнен: {push_error}",
-            )
+
+    push_error = _maybe_git_push(
+        config,
+        shared_dir,
+        "Revert launcher/requirements.txt" if resetting else "Update launcher/requirements.txt",
+        required=True,
+    )
+    if push_error:
+        return _redirect_to_root(
+            request,
+            error=f"Файл записан, но в репозиторий не ушёл: {push_error}",
+        )
 
     if resetting:
         return _redirect_to_root(

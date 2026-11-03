@@ -2516,3 +2516,30 @@
   pre-filled textarea, survival of an unrelated save, the reset rewriting
   both disk and remote, read-only mode, and that an ordinary file save still
   applies the override. Full suite: 438/438.
+
+## 2026-11-03 (saving requirements reported success while nothing was pushed)
+
+- Reported: saving `launcher/requirements.txt` from the settings dialog didn't
+  update the child repository. Investigated by reproducing all three
+  configurations.
+- Root cause: `_maybe_git_push()` returned `None` when push credentials were
+  absent, and callers read `None` as "no error". For an action whose entire
+  point is publishing a file, "not configured" is not success. Two
+  configurations produce it, and both were silent:
+  1. the shared directory isn't a git checkout — there is nowhere to push to;
+  2. it is a checkout but no Git login/password is configured.
+  In both cases the file was written locally, the page said "сохранены", and
+  the repository never changed.
+- Fixed by adding `required=True` to `_maybe_git_push()`: "not configured"
+  becomes an error message instead of a silent pass, used only by this route
+  (skill installs keep the old best-effort behaviour, where a missing push is
+  genuinely fine). The route also checks for `.git` explicitly and says the
+  folder isn't a repository, with what to do about it.
+- Second defect found while fixing the first: the route returned *before*
+  writing the file when `.git` was missing, while the message claimed the file
+  had been written. Reordered — write, then decide what to report — so the
+  message is always true.
+- Verified all three cases end to end: not-a-repo → error naming the path;
+  repo without credentials → "git push не настроен"; repo with credentials →
+  success and the file present in the remote. 3 new tests, one per case, plus
+  the file being written in both failure modes. Full suite: 441/441.

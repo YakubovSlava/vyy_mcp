@@ -153,3 +153,56 @@ def test_a_skill_push_uses_the_override_too(admin_client, repo):
         cwd=bare, capture_output=True, text=True, check=True,
     ).stdout
     assert "numpy" in pushed
+
+
+# --------------------------------------------------------------------------
+# "saved" must mean "it reached the repository"
+# --------------------------------------------------------------------------
+
+
+def test_no_git_repo_is_reported_not_silently_swallowed(admin_client, tmp_path):
+    """The reported bug: the settings button said "сохранены" while nothing
+    could possibly be pushed, because the skill folder isn't a git checkout."""
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    admin_client.post("/config/shared-dir", data={"path": str(plain)})
+
+    r = admin_client.post("/config/launcher-requirements", data={"launcher_requirements": CUSTOM})
+    assert "не git-репозиторий" in r.text
+    # The file is still written — the message says exactly that.
+    assert "numpy" in (plain / "launcher" / "requirements.txt").read_text()
+
+
+def test_missing_push_credentials_are_reported(admin_client, repo):
+    """`_maybe_git_push` returned None for "not configured", which callers read
+    as success. For an action whose whole point is the push, that's wrong.
+
+    Credentials are cleared in the config file directly: the shared-dir route
+    deliberately keeps existing credentials when the form leaves them blank
+    (so saving an unrelated setting can't disable pushes by accident).
+    """
+    import json
+
+    from jupyter_mcp_tools.common.config import config_path, load_config
+
+    _bare, clone = repo
+    cfg = load_config()
+    cfg.git_push_username = None
+    cfg.git_push_password = None
+    from jupyter_mcp_tools.common.config import save_config
+
+    save_config(cfg)
+
+    r = admin_client.post("/config/launcher-requirements", data={"launcher_requirements": CUSTOM})
+    assert "git push не настроен" in r.text
+    # And the file is still on disk, as the message says.
+    assert "numpy" in (clone / "launcher" / "requirements.txt").read_text()
+
+
+def test_a_successful_push_reports_success(admin_client, repo):
+    """The other side of the same guard: it must not cry wolf."""
+    _bare, clone = repo
+    r = admin_client.post("/config/launcher-requirements", data={"launcher_requirements": CUSTOM})
+    assert "сохранены в launcher/requirements.txt" in r.text
+    assert "не git-репозиторий" not in r.text
+    assert "git push не настроен" not in r.text
