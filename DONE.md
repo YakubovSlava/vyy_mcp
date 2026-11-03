@@ -2483,3 +2483,36 @@
 - 12 new tests: normalisation of the messy-but-fixable inputs, refusal of the
   genuinely bad ones, the unset-vs-empty distinction, and both error
   translations. Full suite: 419/419.
+
+## 2026-11-03 (launcher/requirements.txt is editable from admin settings)
+
+- Per request: the contents of `launcher/requirements.txt` in the child repo
+  can now be edited from the "⚙" dialog instead of being derived from the
+  package metadata. New `AppConfig.launcher_requirements` (None = derive),
+  a dedicated `POST /config/launcher-requirements`, and a textarea in the
+  settings dialog.
+- The override is written **verbatim, not merged**: `requirements_text()`
+  returns the admin's text as-is (only guaranteeing a trailing newline).
+  Merging would be worse than useless here — a dependency the admin removed
+  would reappear on the next render, and they'd have no way to tell what was
+  actually going to be installed. If they drop something the server needs,
+  the install fails visibly in `launcher/`.
+- A blank value means "back to the derived list", not "write an empty file":
+  an empty `requirements.txt` installs nothing and leaves a launcher that
+  can't start.
+- Two wiring details that would otherwise bite:
+  - `set_shared_dir` rebuilds `AppConfig` from scratch, so every field has to
+    be carried over explicitly. A field it doesn't copy is silently reset the
+    next time an admin saves an unrelated form — pinned by a test.
+  - `git_push` reads the override from config on every push, so a later skill
+    install or file edit can't revert the file to the derived list.
+- Found a bug in my own first version, by testing the reset path: it returned
+  early for a blank value, so the config was cleared but the *old custom file*
+  stayed on disk and in the remote — the textarea showed the default list
+  while the repo still shipped the old pins. Both directions now rewrite and
+  push.
+- 12 tests in `test_launcher_requirements.py`: verbatim override, trailing
+  newline, blank falling back to the default, the file and its push, the
+  pre-filled textarea, survival of an unrelated save, the reset rewriting
+  both disk and remote, read-only mode, and that an ordinary file save still
+  applies the override. Full suite: 438/438.

@@ -324,6 +324,14 @@ def test_child_relay_file_rename_keeps_reserved_rules(child_client, tmp_path):
         ('"https://h.example:8766/"', "https://h.example:8766"),
         ("https://h.example:8766 ", "https://h.example:8766"),
         ("  'https://h.example:8766/'  ", "https://h.example:8766"),
+        # URL schemes are case-insensitive (RFC 3986 3.1). Rejecting
+        # `HTTPS://` told someone who typed a valid URL that it wasn't one.
+        ("HTTPS://h.example:8766", "https://h.example:8766"),
+        ("HttpS://h.example:8766", "https://h.example:8766"),
+        ("HTTP://h.example:8766", "http://h.example:8766"),
+        ("'HTTPS://h.example:8766/'", "https://h.example:8766"),
+        # The path is case-sensitive and must not be folded.
+        ("HTTPS://h.example/Path/Case", "https://h.example/Path/Case"),
     ],
 )
 def test_main_host_is_normalised(raw, expected):
@@ -334,7 +342,10 @@ def test_main_host_is_normalised(raw, expected):
     assert _normalize_main_host(raw) == expected
 
 
-@pytest.mark.parametrize("raw", ["   ", "h.example:8766", "https://h.example:8766/a b", "ftp://x"])
+@pytest.mark.parametrize(
+    "raw",
+    ["   ", "h.example:8766", "https://h.example:8766/a b", "ftp://x", "https:/h", "https//h"],
+)
 def test_a_bad_main_host_refuses_to_start(raw):
     """Failing at import beats failing with curl's "URL using bad/illegal
     format or missing URL", which names neither the setting nor the value."""

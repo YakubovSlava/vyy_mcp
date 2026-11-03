@@ -40,6 +40,7 @@ from starlette.background import BackgroundTask
 from ..common import auth, curl_client, git_push, registry, session, users
 from ..common import builtin_skills
 from ..common import groups as group_store
+from ..common import launcher_bundle
 from ..common import repo_files
 from ..common.config import AppConfig, load_config, save_config
 from ..common.manifest import ToolValidationError
@@ -70,11 +71,18 @@ def _normalize_main_host(raw: str) -> str:
             "MCP_TOOLS_MAIN_HOST задан, но пуст после очистки — укажите адрес "
             "основного хоста, например https://main.example.org:8766"
         )
-    if not value.startswith(("http://", "https://")):
+    # URL schemes are case-insensitive (RFC 3986 §3.1): `HTTPS://...` is the
+    # same URL as `https://...`. Requiring lowercase rejected input that was
+    # perfectly correct, which is a bad trade for a setting a human types by
+    # hand. Normalise the scheme and keep the rest of the value as given —
+    # hosts and paths *are* case-sensitive.
+    scheme, separator, remainder = value.partition("://")
+    if not separator or scheme.lower() not in ("http", "https"):
         raise RuntimeError(
             f"MCP_TOOLS_MAIN_HOST должен начинаться с http:// или https://, "
             f"получено: {raw!r}"
         )
+    value = f"{scheme.lower()}://{remainder}"
     if " " in value or "\t" in value:
         raise RuntimeError(f"MCP_TOOLS_MAIN_HOST содержит пробел: {raw!r}")
     return value
@@ -480,6 +488,7 @@ def _render(request: Request, **extra):
         git_push_username = ""
         git_push_password_set = False
         instructions = ""
+        launcher_requirements = ""
         group_names = [g["name"] for g in _remote_list_groups()[0]]
     else:
         config = load_config()
@@ -497,6 +506,11 @@ def _render(request: Request, **extra):
         # установлен" placeholder instead of leaking it into the HTML.
         git_push_password_set = bool(config.git_push_password)
         instructions = config.effective_instructions
+        launcher_requirements = (
+            config.launcher_requirements
+            if config.launcher_requirements is not None
+            else launcher_bundle.default_requirements_text()
+        )
         group_names = [g.name for g in group_store.list_groups(shared_dir)]
 
     return templates.TemplateResponse(
@@ -511,6 +525,7 @@ def _render(request: Request, **extra):
             "git_push_username": git_push_username,
             "git_push_password_set": git_push_password_set,
             "instructions": instructions,
+            "launcher_requirements": launcher_requirements,
             "group_names": group_names,
             "tools": tools,
             "message": message,
@@ -814,9 +829,62 @@ def set_shared_dir(
             git_push_username=git_push_username or existing.git_push_username,
             git_push_password=git_push_password or existing.git_push_password,
             instructions=instructions or None,
+            # Carried over explicitly: this route rebuilds the whole AppConfig,
+            # so any field not listed here is silently reset. That's how a
+            # setting disappears the next time someone saves an unrelated form.
+            launcher_requirements=existing.launcher_requirements,
         )
     )
     return _redirect_to_root(request, message=f"Общая директория с навыками установлена на {new_path}")
+
+
+@app.post("/config/launcher-requirements")
+def save_launcher_requirements(
+    request: Request,
+    launcher_requirements: str = Form(""),
+    _admin: str | None = Depends(require_admin_page),
+):
+    """Save the contents of `launcher/requirements.txt` for the child repo.
+
+    A blank value means "go back to the derived list" rather than "write an
+    empty file" — an empty requirements.txt installs nothing and would leave a
+    launcher that can't start.
+    """
+    if MAIN_HOST:
+        raise HTTPException(status_code=403, detail="Managed on the main host only.")
+    if READ_ONLY:
+        return _redirect_to_root(request, error=READ_ONLY_MESSAGE)
+
+    config = load_config()
+    config.launcher_requirements = launcher_requirements or None
+    save_config(config)
+
+    resetting = not launcher_requirements.strip()
+
+    # Write it out in both directions, not only when text was supplied: a reset
+    # that changed the config but left the old custom file in the repo would be
+    # a silent lie — the textarea would show the default list while the
+    # repository still shipped the admin's old pins.
+    shared_dir = config.shared_dir_path
+    if shared_dir.is_dir():
+        launcher_bundle.ensure(shared_dir, config.launcher_requirements)
+        push_error = _maybe_git_push(
+            config,
+            shared_dir,
+            "Revert launcher/requirements.txt" if resetting else "Update launcher/requirements.txt",
+        )
+        if push_error:
+            return _redirect_to_root(
+                request,
+                error=f"Сохранено, но git push не выполнен: {push_error}",
+            )
+
+    if resetting:
+        return _redirect_to_root(
+            request,
+            message="Список зависимостей сброшен — в launcher/requirements.txt идёт стандартный набор.",
+        )
+    return _redirect_to_root(request, message="Зависимости сохранены в launcher/requirements.txt.")
 
 
 @app.post("/config/instructions/reset")

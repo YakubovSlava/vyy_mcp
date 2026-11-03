@@ -105,6 +105,21 @@ def _drop_ignored_from_index(shared_dir: Path) -> list[str]:
     return removed
 
 
+def _requirements_override() -> str | None:
+    """The admin's `launcher/requirements.txt` text, if they set one.
+
+    Imported lazily and swallowed on failure: this runs inside the push path,
+    which must never fail because reading the config file did.
+    """
+    try:
+        from .config import load_config
+
+        return load_config().launcher_requirements
+    except Exception:  # noqa: BLE001 - a broken config must not block a push
+        logger.exception("could not read launcher_requirements from config")
+        return None
+
+
 def _run(shared_dir: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         ["git", "-C", str(shared_dir), *args],
@@ -177,7 +192,7 @@ def push_shared_dir(shared_dir: Path, *, username: str, password: str, commit_me
     # rewritten from the current code on every push so it can't go stale.
     # This is the one exception to "nothing is machine-generated here" --
     # see common/launcher_bundle.py.
-    launcher_bundle.ensure(shared_dir)
+    launcher_bundle.ensure(shared_dir, _requirements_override())
 
     _ensure_gitignore(shared_dir)
     _drop_ignored_from_index(shared_dir)

@@ -128,14 +128,10 @@ def _iter_sources(package_dir: Path):
         yield path
 
 
-def requirements_text() -> str:
-    """Third-party dependencies only — no self-reference.
-
-    The dependency list comes from the installed distribution's metadata
-    rather than a hardcoded copy, so it can't drift from what this process
-    actually runs with. If the metadata is unavailable, fall back to a
-    minimal known-good set instead of writing an empty file that would fail
-    at install time.
+def default_requirements_text() -> str:
+    """What `requirements.txt` should contain when the admin hasn't overridden
+    it: this package's own third-party dependencies, read from its metadata so
+    the list can't drift from what the server actually runs with.
     """
     try:
         from importlib.metadata import requires
@@ -170,10 +166,24 @@ def requirements_text() -> str:
     return "\n".join(lines) + "\n"
 
 
-def render() -> dict[str, str]:
+def requirements_text(override: str | None = None) -> str:
+    """The file's contents: the admin's text verbatim, else the derived list.
+
+    The override is not merged with the defaults — a hand-edited file that
+    silently grew extra lines back would be worse than useless, because the
+    admin couldn't tell what was actually going to be installed. If the admin
+    removes a dependency the server needs, that's a visible install failure in
+    `launcher/`, not a silent surprise.
+    """
+    if override is not None and override.strip():
+        return override if override.endswith("\n") else override + "\n"
+    return default_requirements_text()
+
+
+def render(requirements_override: str | None = None) -> dict[str, str]:
     """The small text files this folder owns."""
     return {
-        REQUIREMENTS_RELPATH: requirements_text(),
+        REQUIREMENTS_RELPATH: requirements_text(requirements_override),
         ENTRYPOINT_RELPATH: _ENTRYPOINT,
         README_RELPATH: _README,
     }
@@ -216,9 +226,9 @@ def _sync_package(shared_dir: Path, package_dir: Path) -> None:
                 existing.rmdir()
 
 
-def ensure(shared_dir: Path) -> None:
+def ensure(shared_dir: Path, requirements_override: str | None = None) -> None:
     """Write the launcher folder, touching only what actually changed."""
-    for relative, content in render().items():
+    for relative, content in render(requirements_override).items():
         _write_if_changed(shared_dir / relative, content)
 
     package_dir = package_source_root()

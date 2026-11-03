@@ -91,6 +91,13 @@ class AppConfig:
     # restart needed — the same freshness every other admin-UI edit
     # already gets for the tool list itself.
     instructions: str | None = None
+    # Contents of `launcher/requirements.txt` in the child repo, when the admin
+    # wants to pin or add dependencies by hand. `None` means "derive it from
+    # this package's own metadata", which is the default: the generated list is
+    # correct for the server as shipped, and only a deployment that needs extra
+    # packages has a reason to override it. Stored verbatim — no merging — so
+    # what the admin wrote is exactly what lands in the repo.
+    launcher_requirements: str | None = None
 
     @property
     def shared_dir_path(self) -> Path:
@@ -112,6 +119,7 @@ def load_config() -> AppConfig:
         git_push_username=data.get("git_push_username"),
         git_push_password=data.get("git_push_password"),
         instructions=data.get("instructions"),
+        launcher_requirements=data.get("launcher_requirements"),
     )
 
 

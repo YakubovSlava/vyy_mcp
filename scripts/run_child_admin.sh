@@ -41,14 +41,28 @@ if [ -z "$MAIN_HOST" ]; then
   echo "error: main host URL is empty" >&2
   exit 1
 fi
-case "$MAIN_HOST" in
-  http://*|https://*) ;;
-  *)
-    echo "error: main host must start with http:// or https://, got: '$1'" >&2
-    echo "       e.g. https://main.example.org:8766" >&2
-    exit 1
-    ;;
-esac
+# Scheme is case-insensitive (RFC 3986 3.1): HTTPS:// is the same URL as
+# https://, so don't reject input that's perfectly valid. Lowercase it for
+# consistency; the rest of the value keeps its case (hosts and paths are
+# case-sensitive).
+SCHEME="${MAIN_HOST%%://*}"
+REST="${MAIN_HOST#*://}"
+if [ "$SCHEME" != "$MAIN_HOST" ]; then
+  case "$(printf '%s' "$SCHEME" | tr '[:upper:]' '[:lower:]')" in
+    http|https)
+      MAIN_HOST="$(printf '%s' "$SCHEME" | tr '[:upper:]' '[:lower:]')://$REST"
+      ;;
+    *)
+      echo "error: main host must use http:// or https://, got scheme '$SCHEME'" >&2
+      echo "       e.g. https://main.example.org:8766" >&2
+      exit 1
+      ;;
+  esac
+else
+  echo "error: main host must start with http:// or https://, got: '$1'" >&2
+  echo "       e.g. https://main.example.org:8766" >&2
+  exit 1
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 

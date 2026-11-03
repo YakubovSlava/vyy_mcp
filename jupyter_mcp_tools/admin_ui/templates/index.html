@@ -117,6 +117,17 @@
     </label>
     <p style="margin-top:-0.5rem">Если заполнено и в общей директории уже настроен git-репозиторий — после каждого изменения (навык, группа, файл) выполняется <code>git add/commit/push</code>. Пароль здесь никогда не показывается — пустое поле оставляет сохранённый без изменений. Файлы в корне репозитория (всё кроме <code>tools/</code>) загружаются и правятся на вкладке «Файлы».</p>
     <label>
+      Зависимости для <code>launcher/requirements.txt</code>
+      <textarea name="launcher_requirements" rows="8" form="launcherReqForm"
+                placeholder="пусто — стандартный набор из этого пакета">{{ launcher_requirements }}</textarea>
+    </label>
+    <p style="margin-top:-0.5rem">
+      То, что увидит тот, кто запускает сервер из репозитория навыков: <code>pip install -r launcher/requirements.txt</code>.
+      Пустое поле — стандартный набор зависимостей этого пакета. Если заполнить, ваш текст записывается как есть, без слияния с набором:
+      удалённая зависимость не вернётся сама, и установка на той стороне упадёт явно, а не тихо.
+      <button type="submit" form="launcherReqForm" class="edit-btn">Сохранить и запушить</button>
+    </p>
+    <label>
       Системная инструкция для агента
       <textarea name="instructions" rows="5">{{ instructions }}</textarea>
     </label>
@@ -227,6 +238,8 @@
     </div>
   </div>
 </dialog>
+
+<form method="post" action="config/launcher-requirements" id="launcherReqForm"></form>
 
 <dialog id="renameSkillDialog">
   <form method="post" id="renameSkillForm" class="dialog-body">
