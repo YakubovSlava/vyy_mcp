@@ -36,7 +36,12 @@ available to every user of the server — without restarting anything.
   instead of using `watchdog` or inotify. Avoids an extra dependency and
   cross-platform file-event quirks; 5s latency between "admin clicks
   install" and "tool is callable" is an acceptable trade-off for this use
-  case.
+  case. A tick only re-registers a tool whose fingerprint changed (manifest,
+  description, and for code skills the module's mtime/size) — the first
+  version removed and re-added everything on every tick, which logged ~1.2
+  lines per second per connected session for no reason and buried the lines
+  that mattered. The fingerprint cache is per-`FastMCP` instance, not a
+  module global, so two instances in one process can't share tool state.
 - **`mcp` SDK pinned to `<2`.** The SDK's 2.x line renamed `FastMCP` to
   `MCPServer` and changed the handler-registration API (constructor
   `on_list_tools=`/`on_call_tool=` callbacks instead of decorators). The

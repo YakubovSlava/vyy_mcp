@@ -301,3 +301,82 @@ def test_instructions_explain_the_markers(shared_dir):
     assert "[exec]" in instructions
     assert "[read]" in instructions
     assert "files" in instructions  # the "hand these to the human" caveat
+
+
+# --------------------------------------------------------------------------
+# an idle sync tick must be a no-op
+# --------------------------------------------------------------------------
+
+
+def test_repeated_sync_does_not_reregister_unchanged_tools(make_archive, shared_dir, caplog):
+    """Every tick used to remove and re-add every tool, logging a line each
+    time: on an idle server that's ~1.2 log lines/second per session, forever,
+    and it buries the lines that matter."""
+    import logging
+
+    registry.install_tool(make_archive("greet", VALID_MODULE), shared_dir)
+    app = build_app(shared_dir)
+    sync_tools(app, shared_dir)
+
+    with caplog.at_level(logging.INFO, logger="jupyter_mcp_tools.server"):
+        caplog.clear()
+        for _ in range(5):
+            sync_tools(app, shared_dir)
+
+    registrations = [r for r in caplog.records if "registered tool" in r.getMessage()]
+    assert registrations == [], (
+        "an unchanged directory must not re-register anything; "
+        f"got {[r.getMessage() for r in registrations]}"
+    )
+
+
+def test_an_edited_skill_is_still_picked_up(make_archive, shared_dir, tmp_path):
+    """The optimisation must not defeat the reason the old code re-registered:
+    editing a skill's code takes effect without a restart."""
+    import asyncio
+
+    registry.install_tool(make_archive("greet", VALID_MODULE), shared_dir)
+    app = build_app(shared_dir)
+    sync_tools(app, shared_dir)
+    content, _ = asyncio.run(app.call_tool("greet", {"name": "World"}))
+    assert "Hello" in content[0].text
+
+    module_path = shared_dir / "tools" / "greet" / "tool.py"
+    module_path.write_text(
+        'def greet(name: str) -> str:\n    """Greets someone by name."""\n    return f"Hi, {name}!"\n'
+    )
+    sync_tools(app, shared_dir)
+
+    content, _ = asyncio.run(app.call_tool("greet", {"name": "World"}))
+    assert "Hi, World!" in content[0].text
+
+
+def test_a_removed_skill_is_unregistered_and_reappears_when_reinstalled(
+    make_archive, shared_dir
+):
+    """Clearing the cache on removal matters: a reinstall must register even
+    if the manifest is byte-identical to what was there before."""
+    registry.install_tool(make_archive("greet", VALID_MODULE), shared_dir)
+    app = build_app(shared_dir)
+    sync_tools(app, shared_dir)
+    assert "greet" in {t.name for t in app._tool_manager.list_tools()}
+
+    registry.remove_tool(shared_dir, "greet")
+    sync_tools(app, shared_dir)
+    assert "greet" not in {t.name for t in app._tool_manager.list_tools()}
+
+    registry.install_tool(make_archive("greet", VALID_MODULE), shared_dir)
+    sync_tools(app, shared_dir)
+    assert "greet" in {t.name for t in app._tool_manager.list_tools()}
+
+
+def test_two_apps_do_not_share_registration_state(make_archive, shared_dir, tmp_path):
+    """The fingerprint cache is per-app: a module-global one made a second app
+    believe a tool it never registered was already current."""
+    registry.install_tool(make_archive("greet", VALID_MODULE), shared_dir)
+    first = build_app(shared_dir)
+    sync_tools(first, shared_dir)
+
+    second = build_app(shared_dir)
+    sync_tools(second, shared_dir)
+    assert "greet" in {t.name for t in second._tool_manager.list_tools()}

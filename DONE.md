@@ -2543,3 +2543,31 @@
   repo without credentials → "git push не настроен"; repo with credentials →
   success and the file present in the remote. 3 new tests, one per case, plus
   the file being written in both failure modes. Full suite: 441/441.
+
+## 2026-11-05 (sync loop no longer re-registers every tool on every tick)
+
+- Reported: the MCP server spams tool registrations on startup. Measured
+  first: zero lines while idle, but 18 lines in 22 seconds with one session
+  open — every tool torn down and re-added on every 5-second tick.
+- Cause: `sync_tools()` re-registered unconditionally, with a comment saying
+  it was "so edits to an already-installed tool take effect without a
+  restart". That reasoning was right but the implementation was the bluntest
+  possible version of it: the reload requirement is about *changed* files, not
+  about every tick.
+- Now each tool has a fingerprint (manifest name, description, kind, and for a
+  code skill the module's path/mtime/size, plus a doc skill's file list), and
+  a tick only re-registers when it differs. Verified live: same 22-second
+  session now produces 3 lines (the initial registration) instead of 18.
+- Two details that a naive cache would have broken, both caught by tests:
+  - A **module-global** cache leaked between `FastMCP` instances, so a second
+    app believed a tool it had never registered was already current. The cache
+    now hangs off the app instance.
+  - A removed tool must **drop its fingerprint**, or reinstalling the same
+    skill wouldn't register — the cached entry would look current while the
+    tool no longer existed.
+- The mtime+size stamp (not a content hash) is deliberate: this runs every 5
+  seconds per skill, and the question is only "did the file change since we
+  loaded it".
+- 4 new tests: an idle tick logs nothing, an edited skill is still picked up
+  and actually returns the new behaviour, a removed-then-reinstalled skill
+  registers again, and two apps don't share state. Full suite: 445/445.

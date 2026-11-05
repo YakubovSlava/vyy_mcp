@@ -163,6 +163,48 @@ def _make_group_tool(shared_dir: Path, group_manifests: dict[str, AnyManifest]):
     return call
 
 
+def _fingerprints(app: FastMCP) -> dict[str, tuple]:
+    """Per-app cache of what's currently registered.
+
+    Deliberately attached to the app rather than kept module-global: two
+    FastMCP instances in one process (tests, or a future multi-tenant setup)
+    must not share tool state, and a stale global would make the second app
+    believe a tool it never registered is already up to date.
+    """
+    cache = getattr(app, "_jupyter_mcp_tool_fingerprints", None)
+    if cache is None:
+        cache = {}
+        app._jupyter_mcp_tool_fingerprints = cache
+    return cache
+
+
+def _source_stamp(shared_dir: Path, manifest: AnyManifest) -> tuple:
+    """Cheap identity of the file(s) a code skill is loaded from.
+
+    mtime+size, not a content hash: this runs every 5 seconds for every
+    skill, and the point is only "did the file change since we loaded it".
+    """
+    if manifest.kind != "code":
+        return ()
+    module_path = registry.tools_dir(shared_dir) / manifest.name / f"{manifest.module_name}.py"
+    try:
+        stat = module_path.stat()
+        return (str(module_path), stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        return (str(module_path), 0, 0)
+
+
+def _tool_fingerprint(shared_dir: Path, manifest: AnyManifest, description: str) -> tuple:
+    """What must change for a tool to need re-registering."""
+    return (
+        manifest.name,
+        description,
+        manifest.kind,
+        _source_stamp(shared_dir, manifest),
+        tuple(getattr(manifest, "files", ()) or ()),
+    )
+
+
 def sync_tools(app: FastMCP, shared_dir: Path) -> None:
     """Reconcile the live FastMCP tool registry with the shared directory.
 
@@ -208,6 +250,7 @@ def sync_tools(app: FastMCP, shared_dir: Path) -> None:
 
     for name in existing_names - desired_names:
         app.remove_tool(name)
+        _fingerprints(app).pop(name, None)
         logger.info("unregistered tool removed from shared dir: %s", name)
 
     for name, manifest in standalone.items():
@@ -220,17 +263,27 @@ def sync_tools(app: FastMCP, shared_dir: Path) -> None:
                 logger.exception("failed to load tool '%s', skipping", name)
                 continue
 
-        # Always re-register so edits to an already-installed tool (same
-        # name, updated code) take effect without a server restart.
-        if name in existing_names:
-            app.remove_tool(name)
         prefix = f"[{manifest.group}] " if manifest.group else ""
         # The marker goes first, before the group prefix: agents read the
         # description from the front, and "does this actually run anything"
         # is the more consequential fact than which category it belongs to.
         marker = READ_MARKER if isinstance(manifest, DocSkillManifest) else EXEC_MARKER
         description = f"{marker} {prefix}{manifest.description}"
+
+        # Re-register only when something about the tool actually changed.
+        # This used to re-register unconditionally "so edits take effect",
+        # which meant every 5-second tick tore down and rebuilt every tool --
+        # each one a log line, on every connected session, forever. Fine for
+        # three skills, awful for thirty, and it made the log useless for
+        # spotting real changes.
+        fingerprint = _tool_fingerprint(shared_dir, manifest, description)
+        if _fingerprints(app).get(name) == fingerprint:
+            continue
+
+        if name in existing_names:
+            app.remove_tool(name)
         app.add_tool(entrypoint, name=manifest.name, description=description)
+        _fingerprints(app)[name] = fingerprint
         logger.info("registered tool: %s (group=%r)", manifest.name, manifest.group)
 
     for group_name, group_manifests in grouped.items():
@@ -239,11 +292,20 @@ def sync_tools(app: FastMCP, shared_dir: Path) -> None:
             app.remove_tool(tool_name)
         # A group can mix both kinds, so it gets no single marker — its own
         # listing marks each skill individually instead (see _make_group_tool).
+        description = real_groups[group_name].description
+        fingerprint = (
+            "group",
+            description,
+            tuple(sorted(group_manifests)),
+        )
+        if _fingerprints(app).get(tool_name) == fingerprint:
+            continue
         app.add_tool(
             _make_group_tool(shared_dir, group_manifests),
             name=tool_name,
-            description=real_groups[group_name].description,
+            description=description,
         )
+        _fingerprints(app)[tool_name] = fingerprint
         logger.info("registered group tool: %s (%d skills)", tool_name, len(group_manifests))
 
 
