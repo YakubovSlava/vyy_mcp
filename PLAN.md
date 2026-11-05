@@ -31,12 +31,16 @@ available to every user of the server — without restarting anything.
   on a shared filesystem) can see installed tools. Simpler to operate than
   standing up Postgres/SQLite for what is fundamentally "a folder of
   scripts," per the user's explicit preference.
-- **Polling, not file watching.** The MCP server re-scans the shared
-  directory every 5 seconds (`SYNC_INTERVAL_SECONDS` in `server.py`)
-  instead of using `watchdog` or inotify. Avoids an extra dependency and
-  cross-platform file-event quirks; 5s latency between "admin clicks
-  install" and "tool is callable" is an acceptable trade-off for this use
-  case. A tick only re-registers a tool whose fingerprint changed (manifest,
+- **Polling, but only where it earns its keep.** In `streamable-http` (and
+  `sse`) one long-lived process serves many clients, so the shared directory
+  is re-scanned every 5 seconds (`SYNC_INTERVAL_SECONDS`) instead of using
+  `watchdog`/inotify — no extra dependency, no cross-platform file-event
+  quirks, and 5s latency between "admin clicks install" and "tool is
+  callable" is acceptable there. In `stdio` the process lives exactly as long
+  as one client session (~0.9s measured for a trivial one) and re-reads the
+  directory fresh at every start, so polling is disabled (`poll=False`): every
+  tick would re-read an unchanged directory, and a tick that fails to read a
+  skill would look like that skill being deleted. A tick only re-registers a tool whose fingerprint changed (manifest,
   description, and for code skills the module's mtime/size) — the first
   version removed and re-added everything on every tick, which logged ~1.2
   lines per second per connected session for no reason and buried the lines

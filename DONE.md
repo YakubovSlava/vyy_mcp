@@ -2571,3 +2571,31 @@
 - 4 new tests: an idle tick logs nothing, an edited skill is still picked up
   and actually returns the new behaviour, a removed-then-reinstalled skill
   registers again, and two apps don't share state. Full suite: 445/445.
+
+## 2026-11-05 (tools vanished from tools/list without anyone touching anything)
+
+- Reported: `tools/list` intermittently omits tools even though nothing was
+  being changed during the agent session. Reproduced the mechanism rather than
+  theorising: `sync_tools()` computes "skills currently readable on disk" and
+  unregisters every registered tool not in that set. A skill whose files are
+  briefly unreadable — being written by an install, held by an antivirus,
+  mid-`git pull`, on a flaky network mount — therefore looks *deleted*, and the
+  tool disappears from `tools/list` for up to one tick. Confirmed by emptying a
+  skill's `.py` mid-write: `['create_skill','myskill','skill_builder']` →
+  `['create_skill','skill_builder']` → back again.
+- Fixed: a tool is unregistered only when its folder is genuinely gone. If the
+  folder is still there but the scan couldn't read it, the tool stays
+  registered and a warning is logged ("could not be read this tick -- keeping
+  it registered"). Verified both directions: a failed scan keeps the tool, an
+  actual delete still removes it.
+- Also acted on the follow-up question ("why sync every 5 seconds? once at
+  startup seems fine"): polling is now **disabled for stdio** (`poll=False`)
+  and kept for `sse`/`streamable-http`. In stdio the process lives exactly as
+  long as one client session — measured ~0.9s for a trivial session — and
+  re-reads the directory at every start, so ticks re-read a directory that
+  cannot have changed, while every tick is one more chance to hit the failure
+  above. HTTP mode genuinely needs it: one process, many clients, and an
+  install must appear without a restart.
+- 4 new tests: an unreadable skill stays registered (and logs the warning), a
+  deleted one is still removed, stdio starts no background task, http starts
+  exactly one. Full suite: 449/449.

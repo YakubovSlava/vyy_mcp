@@ -249,6 +249,17 @@ def sync_tools(app: FastMCP, shared_dir: Path) -> None:
     existing_names = {t.name for t in app._tool_manager.list_tools()}
 
     for name in existing_names - desired_names:
+        # "Couldn't read it this tick" is not "it was deleted". A skill is
+        # briefly unreadable whenever its files are being written — an install
+        # through the admin UI, `pip install`, a `git pull`, or an antivirus
+        # holding the file. Unregistering on that makes the tool vanish from
+        # `tools/list` for up to a tick, which an agent reports as "tool not
+        # available". Only a folder that is genuinely gone justifies removal.
+        if registry.tools_dir(shared_dir).joinpath(name).exists():
+            logger.warning(
+                "tool '%s' could not be read this tick -- keeping it registered", name
+            )
+            continue
         app.remove_tool(name)
         _fingerprints(app).pop(name, None)
         logger.info("unregistered tool removed from shared dir: %s", name)
@@ -337,17 +348,38 @@ async def _tool_sync_loop(app: FastMCP, shared_dir: Path) -> None:
         await asyncio.sleep(SYNC_INTERVAL_SECONDS)
 
 
-def build_app(shared_dir: Path, host: str = "127.0.0.1", port: int = 8765) -> FastMCP:
+def build_app(
+    shared_dir: Path,
+    host: str = "127.0.0.1",
+    port: int = 8765,
+    *,
+    poll: bool = True,
+) -> FastMCP:
+    """Build the MCP app.
+
+    `poll=False` syncs once at startup and never again. That's the right mode
+    for stdio: the process lives exactly as long as one client session (measured
+    ~0.9s for a trivial session), so every tick would re-read a directory that
+    cannot have changed — the next session reads it fresh anyway. Polling also
+    costs something: a tick that fails to read a skill (file being written, an
+    antivirus holding it, a network filesystem hiccup) is indistinguishable
+    from a deleted skill and unregisters it, which an agent sees as "tool not
+    available" for up to 5 seconds. HTTP mode keeps polling, because there one
+    long-lived process serves many clients and an admin's install must appear
+    without a restart.
+    """
+
     @contextlib.asynccontextmanager
     async def lifespan(app: FastMCP) -> AsyncIterator[dict]:
         sync_tools(app, shared_dir)
-        task = asyncio.create_task(_tool_sync_loop(app, shared_dir))
+        task = asyncio.create_task(_tool_sync_loop(app, shared_dir)) if poll else None
         try:
             yield {}
         finally:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
 
     # `host` must be passed in at construction time, not set on
     # `app.settings` afterwards: FastMCP auto-enables DNS-rebinding
@@ -395,10 +427,13 @@ def main() -> None:
     shared_dir.mkdir(parents=True, exist_ok=True)
     logger.info("serving tools from %s", shared_dir)
 
+    # Both network transports serve many clients from one process, so the
+    # directory has to be re-scanned while it runs. stdio is one process per
+    # session and re-reads at every start, so polling only adds failure modes.
     if args.transport in ("sse", "streamable-http"):
-        app = build_app(shared_dir, host=args.host, port=args.port)
+        app = build_app(shared_dir, host=args.host, port=args.port, poll=True)
     else:
-        app = build_app(shared_dir)
+        app = build_app(shared_dir, poll=False)
 
     if args.transport == "streamable-http":
         # Bypass app.run() here so we can attach LogMCPUserMiddleware to the

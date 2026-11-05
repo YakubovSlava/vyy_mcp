@@ -380,3 +380,79 @@ def test_two_apps_do_not_share_registration_state(make_archive, shared_dir, tmp_
     second = build_app(shared_dir)
     sync_tools(second, shared_dir)
     assert "greet" in {t.name for t in second._tool_manager.list_tools()}
+
+
+# --------------------------------------------------------------------------
+# a transient read failure must not unregister a tool
+# --------------------------------------------------------------------------
+
+
+def test_unreadable_skill_stays_registered(make_archive, shared_dir, monkeypatch, caplog):
+    """A skill is briefly unreadable whenever its files are being written (an
+    install, `pip install`, a git pull, an antivirus holding the file). That is
+    not a deletion, but the old code treated it as one and dropped the tool for
+    up to a tick — which an agent reports as "tool not available"."""
+    import logging
+
+    from jupyter_mcp_tools.common import registry as reg
+
+    reg.install_tool(make_archive("greet", VALID_MODULE), shared_dir)
+    app = build_app(shared_dir)
+    sync_tools(app, shared_dir)
+    assert "greet" in {t.name for t in app._tool_manager.list_tools()}
+
+    # One tick where the directory scan comes back empty, folder still present.
+    monkeypatch.setattr(reg, "list_tools", lambda d: [])
+    with caplog.at_level(logging.WARNING, logger="jupyter_mcp_tools.server"):
+        sync_tools(app, shared_dir)
+
+    assert "greet" in {t.name for t in app._tool_manager.list_tools()}
+    assert any("could not be read" in r.getMessage() for r in caplog.records)
+
+
+def test_a_genuinely_deleted_skill_is_still_unregistered(make_archive, shared_dir):
+    """The guard must not prevent real removals."""
+    from jupyter_mcp_tools.common import registry as reg
+
+    reg.install_tool(make_archive("greet", VALID_MODULE), shared_dir)
+    app = build_app(shared_dir)
+    sync_tools(app, shared_dir)
+
+    reg.remove_tool(shared_dir, "greet")
+    sync_tools(app, shared_dir)
+    assert "greet" not in {t.name for t in app._tool_manager.list_tools()}
+
+
+# --------------------------------------------------------------------------
+# polling only where it earns its keep
+# --------------------------------------------------------------------------
+
+
+def test_stdio_mode_does_not_start_a_sync_loop(shared_dir):
+    """In stdio the process lives as long as one session and reads the
+    directory fresh at every start, so polling only adds failure modes."""
+    import asyncio
+
+    app = build_app(shared_dir, poll=False)
+
+    async def run():
+        async with app._mcp_server.lifespan(app._mcp_server):
+            await asyncio.sleep(0.2)
+            return [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+
+    assert asyncio.run(run()) == []
+
+
+def test_http_mode_keeps_polling(shared_dir):
+    """One long-lived process serves many clients; an admin's install has to
+    appear without restarting it."""
+    import asyncio
+
+    app = build_app(shared_dir, poll=True)
+
+    async def run():
+        async with app._mcp_server.lifespan(app._mcp_server):
+            await asyncio.sleep(0.2)
+            return [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+
+    assert len(asyncio.run(run())) == 1
